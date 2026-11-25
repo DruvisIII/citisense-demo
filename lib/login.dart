@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
 import 'package:citisense/createAccount.dart';
 import 'package:citisense/friendly_errors.dart';
 import 'package:citisense/landing.dart';
@@ -37,7 +38,7 @@ class _LoginPageState extends State<LoginPage> {
 
   // Diagnostic switch: set to false only temporarily to test whether
   // sending an FCM token causes login.php to stall.
-  static const bool _includeFcmTokenInLogin = true;
+  static const bool _includeFcmTokenInLogin = !kDemoMode;
 
   // ------------------------------------------------------------
   // CONTROLLERS
@@ -87,7 +88,7 @@ class _LoginPageState extends State<LoginPage> {
     // CHECK EMAIL FORMAT
     // ----------------------------------------------------------
 
-    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+    if (!kDemoMode && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid email address.')),
       );
@@ -412,10 +413,23 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 28),
 
+              if (kDemoMode) ...[
+                _DemoAccountsHint(
+                  onPick: (account) => setState(() {
+                    _emailController.text = account.username;
+                    _passwordController.text = account.password;
+                  }),
+                ),
+                const SizedBox(height: 20),
+              ],
+
               // ------------------------------------------------
               // EMAIL
               // ------------------------------------------------
-              const Text('Email', style: AppText.fieldLabel),
+              const Text(
+                kDemoMode ? 'Username or email' : 'Email',
+                style: AppText.fieldLabel,
+              ),
 
               const SizedBox(height: 8),
 
@@ -426,7 +440,7 @@ class _LoginPageState extends State<LoginPage> {
                 autocorrect: false,
                 style: const TextStyle(fontFamily: appFontFamily, fontSize: 14),
                 decoration: const InputDecoration(
-                  hintText: 'Enter your email',
+                  hintText: kDemoMode ? 'e.g. tester1' : 'Enter your email',
                   prefixIcon: Icon(Icons.email_outlined),
                 ),
               ),
@@ -554,6 +568,57 @@ class _LoginPageState extends State<LoginPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Demo only: the test accounts, tap one to fill the form.
+class _DemoAccountsHint extends StatelessWidget {
+  const _DemoAccountsHint({required this.onPick});
+
+  final ValueChanged<DemoAccount> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.primaryBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Demo accounts (tap one to fill in)',
+            style: TextStyle(
+              fontFamily: appHeadingFontFamily,
+              fontWeight: FontWeight.w800,
+              color: AppColors.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Username tester1 to tester5, password demo1 to demo5 '
+            '(e.g. tester1 / demo1).',
+            style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final account in kDemoAccounts)
+                ActionChip(
+                  label: Text('${account.username} / ${account.password}'),
+                  onPressed: () => onPick(account),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

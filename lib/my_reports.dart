@@ -7,6 +7,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:citisense/app_theme.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/tutorial.dart';
 import 'package:citisense/ui_components.dart';
 import 'package:citisense/live_updates.dart';
 import 'package:citisense/report_engagement.dart';
@@ -251,6 +254,12 @@ class _MyReportsPageState extends State<MyReportsPage> {
     });
 
     // A delivered Firebase message triggers an immediate server refresh.
+    if (!kDemoMode) _listenToPush();
+    // New report submitted, status changed, or app resumed.
+    _listenToLiveUpdates();
+  }
+
+  void _listenToPush() {
     _foregroundMessages = FirebaseMessaging.onMessage.listen((message) {
       debugPrint('My Reports: foreground FCM ${message.messageId}');
       _loadReports();
@@ -259,8 +268,9 @@ class _MyReportsPageState extends State<MyReportsPage> {
       debugPrint('My Reports: notification opened ${message.messageId}');
       _loadReports();
     });
+  }
 
-    // New report submitted, status changed, or app resumed.
+  void _listenToLiveUpdates() {
     LiveUpdates.instance.changes.addListener(_onLiveUpdate);
   }
 

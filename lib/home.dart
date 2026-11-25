@@ -8,6 +8,10 @@ import 'package:citisense/api_client.dart';
 import 'package:citisense/barangay_messages_page.dart';
 import 'package:citisense/app_theme.dart';
 import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/open_url.dart';
+import 'package:citisense/demo/tutorial.dart';
 import 'package:citisense/live_updates.dart';
 import 'package:citisense/mascot.dart';
 import 'package:citisense/notification_router.dart';
@@ -134,10 +138,30 @@ class _HomePageState extends State<HomePage> {
       userID: widget.userID,
       barangayID: widget.barangayID,
     );
+
+    if (kDemoMode) {
+      // Lets the tutorial switch tabs and open the report form.
+      DemoNav.tab.value = _selectedIndex;
+      DemoNav.switchTab = _onItemTapped;
+      DemoNav.openReport = _openReportIssue;
+      TutorialController.instance.addListener(_onTutorialChanged);
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => TutorialController.instance.onHomeShown(),
+      );
+    }
+  }
+
+  void _onTutorialChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    if (kDemoMode) {
+      DemoNav.switchTab = null;
+      DemoNav.openReport = null;
+      TutorialController.instance.removeListener(_onTutorialChanged);
+    }
     LiveUpdates.instance.changes.removeListener(_onLiveUpdate);
     super.dispose();
   }
@@ -482,6 +506,7 @@ class _HomePageState extends State<HomePage> {
   // ============================================================
 
   void _onItemTapped(int index) {
+    if (kDemoMode) DemoNav.tab.value = index;
     if (index == 0) {
       _waveToken++;
     }
@@ -576,49 +601,68 @@ class _HomePageState extends State<HomePage> {
           decoration: const BoxDecoration(
             border: Border(top: BorderSide(color: AppColors.divider)),
           ),
-          child: BottomNavigationBar(
-            currentIndex: _selectedIndex,
-            onTap: _onItemTapped,
-            type: BottomNavigationBarType.fixed,
-            backgroundColor: Colors.white,
-            selectedItemColor: AppColors.primary,
-            unselectedItemColor: textGrey,
-            selectedFontSize: 12,
-            unselectedFontSize: 12,
-            selectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w700,
-              fontFamily: appHeadingFontFamily,
+          child: KeyedSubtree(
+            key: kDemoMode ? DemoKeys.navBar : null,
+            child: BottomNavigationBar(
+              currentIndex: _selectedIndex,
+              onTap: _onItemTapped,
+              type: BottomNavigationBarType.fixed,
+              backgroundColor: Colors.white,
+              selectedItemColor: AppColors.primary,
+              unselectedItemColor: textGrey,
+              selectedFontSize: 12,
+              unselectedFontSize: 12,
+              selectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontFamily: appHeadingFontFamily,
+              ),
+              unselectedLabelStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontFamily: appHeadingFontFamily,
+              ),
+              elevation: 0,
+              items: [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.home_outlined),
+                  activeIcon: Icon(Icons.home),
+                  label: 'Home',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.assignment_outlined),
+                  activeIcon: Icon(Icons.assignment),
+                  label: 'My Reports',
+                ),
+                BottomNavigationBarItem(
+                  icon: _withUnreadBadge(const Icon(Icons.notifications_none)),
+                  activeIcon: _withUnreadBadge(const Icon(Icons.notifications)),
+                  label: kDemoMode ? 'Alerts' : 'Notifications',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.settings_outlined),
+                  activeIcon: Icon(Icons.settings),
+                  label: 'Settings',
+                ),
+              ],
             ),
-            unselectedLabelStyle: const TextStyle(
-              fontWeight: FontWeight.w600,
-              fontFamily: appHeadingFontFamily,
-            ),
-            elevation: 0,
-            items: const [
-              BottomNavigationBarItem(
-                icon: Icon(Icons.home_outlined),
-                activeIcon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.assignment_outlined),
-                activeIcon: Icon(Icons.assignment),
-                label: 'My Reports',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.notifications_none),
-                activeIcon: Icon(Icons.notifications),
-                label: 'Notifications',
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.settings_outlined),
-                activeIcon: Icon(Icons.settings),
-                label: 'Settings',
-              ),
-            ],
           ),
         ),
       ),
+    );
+  }
+
+  /// Demo: red unread count on the Alerts tab.
+  Widget _withUnreadBadge(Widget icon) {
+    if (!kDemoMode) return icon;
+    return ListenableBuilder(
+      listenable: DemoStore.instance,
+      builder: (context, _) {
+        final unread = DemoStore.instance.unreadCount;
+        return Badge(
+          isLabelVisible: unread > 0,
+          label: Text('$unread'),
+          child: icon,
+        );
+      },
     );
   }
 
@@ -644,21 +688,25 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              CitiPageHeader(
-                barangayName: _barangayName,
-                eyebrow: greeting,
-                title: '${_firstName.isNotEmpty ? _firstName : 'User'}!',
-                description:
-                    'Let’s work together for a safer and cleaner community.',
-                mascot: CitiMascot(
-                  pose: MascotPose.wave,
-                  playToken: _waveToken,
-                  // Community scene behind the waving mascot.
-                  backdrop: true,
+              KeyedSubtree(
+                key: kDemoMode ? DemoKeys.homeHeader : null,
+                child: CitiPageHeader(
+                  barangayName: _barangayName,
+                  eyebrow: greeting,
+                  title: '${_firstName.isNotEmpty ? _firstName : 'User'}!',
+                  description:
+                      'Let’s work together for a safer and cleaner community.',
+                  mascot: CitiMascot(
+                    pose: MascotPose.wave,
+                    playToken: _waveToken,
+                    // Community scene behind the waving mascot.
+                    backdrop: true,
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
               Material(
+                key: kDemoMode ? DemoKeys.reportButton : null,
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: _openReportIssue,
@@ -733,6 +781,18 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 14),
               _buildMessagesCard(),
+              // Demo: tutorial skipped -> still offer the feedback form.
+              if (kDemoMode && TutorialController.instance.skipped) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => openUrlSameTab(kFeedbackFormUrl),
+                  icon: const Icon(Icons.rate_review_outlined),
+                  label: const Text('Give feedback'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 48),
+                  ),
+                ),
+              ],
               const SizedBox(height: 20),
               Row(
                 children: [

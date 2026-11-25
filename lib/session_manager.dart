@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 
 import 'package:citisense/api_config.dart';
 import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
 import 'package:citisense/home.dart';
 import 'package:citisense/landing.dart';
 import 'package:citisense/live_updates.dart';
@@ -113,7 +114,7 @@ class SessionManager {
     LiveUpdates.instance.stop();
     NotificationRouter.detach();
 
-    if (token != null) {
+    if (token != null && !kDemoMode) {
       String? fcmToken;
       try {
         fcmToken = await FirebaseMessaging.instance.getToken().timeout(
@@ -180,5 +181,6 @@ class SessionManager {
   }
 
   /// First page when nobody is logged in.
-  static Widget get loggedOutHome => const LandingPage();
+  static Widget get loggedOutHome =>
+      kDemoMode ? const LoginPage() : const LandingPage();
 }

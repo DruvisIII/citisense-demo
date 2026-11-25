@@ -4,6 +4,9 @@ import 'dart:convert';
 import 'package:citisense/api_client.dart';
 import 'package:citisense/api_config.dart';
 import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/tutorial.dart';
 import 'package:citisense/notification_router.dart';
 import 'package:citisense/friendly_errors.dart';
 import 'package:citisense/app_theme.dart';
@@ -68,13 +71,15 @@ class _NotificationPageState extends State<NotificationPage>
       if (mounted) setState(() {});
     });
 
-    _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen(
-      _onFirebaseMessage,
-    );
+    if (!kDemoMode) {
+      _foregroundMessageSubscription = FirebaseMessaging.onMessage.listen(
+        _onFirebaseMessage,
+      );
 
-    _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
-      _onFirebaseMessage,
-    );
+      _openedAppSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+        _onFirebaseMessage,
+      );
+    }
 
     LiveUpdates.instance.changes.addListener(_onLiveUpdate);
   }
@@ -581,7 +586,14 @@ class _NotificationPageState extends State<NotificationPage>
         ? Icons.forum_rounded
         : Icons.chat_bubble_rounded;
 
+    // Demo: the tutorial highlights the "now In progress" alert.
+    final isDemoTarget =
+        kDemoMode &&
+        item['reportID'] != null &&
+        item['reportID'] == DemoStore.instance.demoReportID &&
+        (item['message']?.toString() ?? '').contains('In progress');
     return Container(
+      key: isDemoTarget ? DemoKeys.demoNotifCard : null,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppRadius.lg),

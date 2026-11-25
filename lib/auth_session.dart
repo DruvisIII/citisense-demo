@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:citisense/demo/demo_config.dart';
 
 // ============================================================
 // LOGIN SESSION
@@ -92,7 +95,10 @@ class AuthSession {
   static const String _tokenKey = 'citisense_session_token';
   static const String _userKey = 'citisense_session_user';
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _secure = FlutterSecureStorage();
+
+  // Demo (web): plain shared_preferences, no secure storage needed.
+  static final _Store _storage = kDemoMode ? _PrefsStore() : _SecureStore();
 
   static String? _token;
   static SessionUser? _user;
@@ -175,4 +181,34 @@ class AuthSession {
       ...?extra,
     };
   }
+}
+
+abstract class _Store {
+  Future<void> write({required String key, required String value});
+  Future<String?> read({required String key});
+  Future<void> delete({required String key});
+}
+
+class _SecureStore implements _Store {
+  @override
+  Future<void> write({required String key, required String value}) =>
+      AuthSession._secure.write(key: key, value: value);
+  @override
+  Future<String?> read({required String key}) =>
+      AuthSession._secure.read(key: key);
+  @override
+  Future<void> delete({required String key}) =>
+      AuthSession._secure.delete(key: key);
+}
+
+class _PrefsStore implements _Store {
+  @override
+  Future<void> write({required String key, required String value}) async =>
+      (await SharedPreferences.getInstance()).setString(key, value);
+  @override
+  Future<String?> read({required String key}) async =>
+      (await SharedPreferences.getInstance()).getString(key);
+  @override
+  Future<void> delete({required String key}) async =>
+      (await SharedPreferences.getInstance()).remove(key);
 }
