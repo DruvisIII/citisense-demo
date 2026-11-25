@@ -266,7 +266,8 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
 
   final List<String> _categories = [
     'Waste Accumulation',
-    'Blocked Drainage',
+    // Not offered in the web demo.
+    if (!kDemoMode) 'Blocked Drainage',
     'Road Potholes',
     'Others',
   ];

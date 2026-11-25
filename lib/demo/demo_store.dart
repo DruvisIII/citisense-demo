@@ -193,7 +193,6 @@ class DemoStore extends ChangeNotifier {
 
   static const Map<String, String> _categoryNames = {
     'CATE001': 'Waste Accumulation',
-    'CATE002': 'Blocked Drainage',
     'CATE003': 'Road Potholes',
     'CATE004': 'Others',
   };

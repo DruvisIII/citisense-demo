@@ -107,12 +107,6 @@ const List<DemoSample> kDemoSamples = [
     'Road Potholes',
     'Cracks and a pothole detected (simulated).',
   ),
-  DemoSample(
-    'assets/demo/sample_drainage.jpg',
-    'Blocked canal',
-    'Blocked Drainage',
-    'Clogged drainage detected (simulated).',
-  ),
 ];
 
 const String kDemoStaticMapAsset = 'assets/demo/static_map.png';
