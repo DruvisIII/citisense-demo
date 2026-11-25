@@ -109,6 +109,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
     if (kDemoMode) {
       DemoNav.sampleChosen = false;
       DemoNav.locationConfirmed = false;
+      DemoNav.categoryReady = false;
       DemoNav.chooseSample = () => _useDemoSample(kDemoSamples.first);
       DemoNav.confirmLocation = _confirmDemoLocation;
       DemoNav.submitReport = _submitReport;
@@ -1518,6 +1519,11 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
 
   @override
   Widget build(BuildContext context) {
+    if (kDemoMode) {
+      // Tutorial step 5: Next unlocks once the AI result is in.
+      DemoNav.categoryReady = _selectedCategory != null && !_isAnalyzing;
+      DemoNav.selectedCategory = _selectedCategory;
+    }
     final screen = MediaQuery.of(context).size;
     const fieldBlue = AppColors.primary;
     const navy = AppColors.ink;

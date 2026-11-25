@@ -73,6 +73,10 @@ class DemoNav {
   static bool sampleChosen = false;
   static bool locationConfirmed = false;
 
+  /// Report form: AI finished and a category is selected.
+  static bool categoryReady = false;
+  static String? selectedCategory;
+
   /// [key] is mounted, on the top-most route and (for Home tabs) on
   /// the selected tab.
   static bool isShown(GlobalKey key, {int? onTab}) {
@@ -183,13 +187,14 @@ class TutorialController extends ChangeNotifier {
   int get minStep {
     final store = DemoStore.instance;
     switch (store.stage) {
-      case DemoStage.resolved:
       case DemoStage.rated:
         return 14;
+      case DemoStage.resolved:
+        return 13;
       case DemoStage.progress:
-        return store.adminReplied ? 13 : 9;
+        return store.adminReplied ? 12 : 9;
       case DemoStage.pending:
-        return 8;
+        return 7;
       case DemoStage.none:
         return 1;
     }
@@ -210,7 +215,7 @@ class TutorialController extends ChangeNotifier {
     if (target <= 3) {
       DemoNav.popToHome();
       DemoNav.switchTab?.call(0);
-    } else if (target == 8 || target == 9) {
+    } else if (target == 8 || target == 9 || target == 10) {
       DemoNav.popToHome();
       DemoNav.switchTab?.call(target == 8 ? 1 : 2);
     } else if (target == 11 && DemoNav.isShown(DemoKeys.chatComposer)) {
@@ -219,80 +224,61 @@ class TutorialController extends ChangeNotifier {
     goTo(target);
   }
 
-  /// "Next": does the step for the tester when they have not done it.
-  void next() {
+  /// Steps that only explain something (no action required).
+  static bool isInfoStep(int s) => s == 1 || s == 2;
+
+  /// True once the tester has really done what the current step asks.
+  /// "Next" stays disabled until then, so it cannot be used to skip.
+  bool get stepDone => isStepDone(step);
+
+  bool isStepDone(int s) {
     final store = DemoStore.instance;
+    final formOpen = DemoKeys.photoBox.currentContext != null;
+    final onHome = DemoNav.homeIsCurrent;
     final tab = DemoNav.tab.value;
-    switch (step) {
+    switch (s) {
       case 1:
       case 2:
-        DemoNav.popToHome();
-        DemoNav.switchTab?.call(0);
-        goTo(step + 1);
-      case 3:
-        if (DemoNav.homeIsCurrent) {
-          DemoNav.switchTab?.call(0);
-          DemoNav.openReport?.call();
-        } else {
-          goTo(4);
-        }
-      case 4:
-        if (DemoNav.isShown(DemoKeys.sampleSheet)) {
-          appNavigatorKey.currentState?.maybePop();
-        }
-        if (!DemoNav.sampleChosen) DemoNav.chooseSample?.call();
-        goTo(5);
-      case 5:
-        goTo(6);
-      case 6:
-        if (DemoNav.isShown(DemoKeys.mapConfirm)) {
-          appNavigatorKey.currentState?.maybePop();
-        }
-        if (!DemoNav.locationConfirmed) DemoNav.confirmLocation?.call();
-        goTo(7);
-      case 7:
-        if (store.stage == DemoStage.none) {
-          DemoNav.submitReport?.call();
-        } else {
-          goTo(8);
-        }
-      case 8:
-        if (tab != 1 || !DemoNav.homeIsCurrent) {
-          DemoNav.popToHome();
-          DemoNav.switchTab?.call(1);
-        } else {
-          goTo(9);
-        }
-      case 9:
-        if (tab != 2 || !DemoNav.homeIsCurrent) {
-          DemoNav.popToHome();
-          DemoNav.switchTab?.call(2);
-        } else {
-          DemoNav.openDemoReport();
-        }
-      case 10:
-        goTo(11);
-      case 11:
-        DemoNav.openDemoChat();
-      case 12:
-        if (!store.hasAskedFollowUp) {
-          DemoNav.sendChat?.call();
-        } else if (store.adminReplied) {
-          goTo(13);
-        }
-      case 13:
-        DemoNav.popToHome();
-        DemoNav.switchTab?.call(1);
-      case 14:
-        if (store.stage == DemoStage.rated) {
-          finish();
-        } else if (!DemoNav.isShown(DemoKeys.rateSection)) {
-          DemoNav.popToHome();
-          DemoNav.openDemoReport();
-        } else {
-          DemoNav.submitRating?.call();
-        }
+        return true;
+      case 3: // tapped "Report an Issue"
+        return formOpen;
+      case 4: // picked a sample photo
+        return formOpen &&
+            DemoNav.sampleChosen &&
+            !DemoNav.isShown(DemoKeys.sampleSheet);
+      case 5: // AI suggestion is ready and a category is selected
+        return formOpen && DemoNav.categoryReady;
+      case 6: // confirmed the pin on the map
+        return formOpen &&
+            DemoNav.locationConfirmed &&
+            !DemoNav.isShown(DemoKeys.mapConfirm);
+      case 7: // submitted the report
+        return store.stage != DemoStage.none && !formOpen;
+      case 8: // opened My Reports
+        return onHome && tab == 1 && store.demoReportID != null;
+      case 9: // opened Alerts (report became In progress)
+        return onHome &&
+            tab == 2 &&
+            store.stage.index >= DemoStage.progress.index;
+      case 10: // tapped the notification: Report Details is open
+        return DemoNav.isShown(DemoKeys.detailsStatus);
+      case 11: // tapped "Ask your barangay about this report"
+        return DemoNav.isShown(DemoKeys.chatComposer);
+      case 12: // sent the message and the barangay replied
+        return store.adminReplied;
+      case 13: // went back to My Reports: report is Resolved
+        return store.stage.index >= DemoStage.resolved.index;
+      case 14: // submitted the rating
+        return store.stage == DemoStage.rated;
     }
+    return false;
+  }
+
+  /// "Next": only moves on once the step's action is done.
+  void next() {
+    if (!stepDone) return;
+    if (step >= 14) return finish();
+    goTo(step + 1);
   }
 
   void skip() {
@@ -318,12 +304,12 @@ class TutorialController extends ChangeNotifier {
     active = true;
     step = minStep;
     DemoNav.popToHome();
-    DemoNav.switchTab?.call(step >= 14 ? 1 : 0);
+    DemoNav.switchTab?.call(step >= 13 ? 1 : 0);
     _save();
     notifyListeners();
   }
 
-  /// "Done" after rating: show the thank-you screen (step 15).
+  /// "Finish"/"Done" after rating: show the thank-you screen (step 15).
   void finish() {
     step = kTutorialSteps;
     showThanks = true;
@@ -354,7 +340,8 @@ class TutorialController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Automatic progress, checked many times per second while active.
+  /// Keeps the step consistent with what is on screen (never moves
+  /// forward on its own: only "Next" does that).
   void tick() {
     if (!active || showThanks) return;
     final store = DemoStore.instance;
@@ -364,44 +351,22 @@ class TutorialController extends ChangeNotifier {
 
     final formOpen = DemoKeys.photoBox.currentContext != null;
     switch (step) {
-      case 3:
-        if (formOpen) goTo(4);
       case 4:
-        if (!formOpen) return goTo(3);
-        if (DemoNav.sampleChosen && !DemoNav.isShown(DemoKeys.sampleSheet)) {
-          goTo(5);
-        }
       case 5:
-        if (!formOpen) goTo(3);
       case 6:
-        if (!formOpen) return goTo(3);
-        if (DemoNav.locationConfirmed &&
-            !DemoNav.isShown(DemoKeys.mapConfirm)) {
-          goTo(7);
-        }
       case 7:
-        if (!formOpen) goTo(store.stage == DemoStage.none ? 3 : 8);
-      case 8:
-        if (DemoNav.homeIsCurrent && DemoNav.tab.value == 2) goTo(9);
-      case 9:
-        if (store.stage.index >= DemoStage.progress.index &&
-            DemoNav.isShown(DemoKeys.detailsStatus)) {
+        // The report form was closed before submitting: start it again.
+        if (!formOpen && store.stage == DemoStage.none) goTo(3);
+      case 11:
+        if (DemoKeys.detailsStatus.currentContext == null &&
+            DemoKeys.chatComposer.currentContext == null &&
+            DemoNav.homeIsCurrent) {
           goTo(10);
         }
-      case 10:
-      case 11:
-        if (DemoNav.isShown(DemoKeys.chatComposer)) {
-          goTo(12);
-        } else if (DemoKeys.detailsStatus.currentContext == null &&
-            DemoNav.homeIsCurrent) {
-          goTo(9);
-        }
       case 12:
-        if (store.adminReplied) {
-          goTo(13);
-        } else if (DemoKeys.chatComposer.currentContext == null &&
-            DemoNav.homeIsCurrent) {
-          goTo(9);
+        if (!store.adminReplied &&
+            DemoKeys.chatComposer.currentContext == null) {
+          goTo(DemoKeys.detailsStatus.currentContext != null ? 11 : 10);
         }
     }
   }
@@ -420,6 +385,8 @@ class _StepView {
     this.navSlice,
     this.scroll = false,
     this.nextLabel = 'Next',
+    this.doneTitle,
+    this.doneText,
   });
 
   final String title;
@@ -431,6 +398,10 @@ class _StepView {
   final int? navSlice;
   final bool scroll;
   final String nextLabel;
+
+  /// Shown (without dimming) once the step's action is done.
+  final String? doneTitle;
+  final String? doneText;
 
   bool get hasTarget => target != null || navSlice != null;
 }
@@ -467,44 +438,45 @@ _StepView _viewFor(int step) {
         target: DemoKeys.reportButton,
         onTab: 0,
         scroll: true,
+        doneTitle: 'Report form opened',
+        doneText:
+            'This is where you describe the problem. Tap Next to add a photo.',
       );
     case 4:
-      if (DemoNav.isShown(DemoKeys.sampleSheet)) {
-        return _StepView(
-          title: 'Choose a sample photo',
-          text:
-              'Pick any sample photo. In the real app you would use your camera.',
-          target: DemoKeys.sampleSheet,
-        );
-      }
+      final sheet = DemoNav.isShown(DemoKeys.sampleSheet);
       return _StepView(
-        title: 'Add a photo',
-        text: 'Tap the photo box to choose one of the sample photos.',
-        target: DemoKeys.photoBox,
+        title: sheet ? 'Choose a sample photo' : 'Add a photo',
+        text: sheet
+            ? 'Pick any sample photo. In the real app you would use your camera.'
+            : 'Tap the photo box to choose one of the sample photos.',
+        target: sheet ? DemoKeys.sampleSheet : DemoKeys.photoBox,
+        doneTitle: 'Photo added',
+        doneText:
+            'The simulated AI is checking the photo. Tap Next to see its suggestion.',
       );
     case 5:
       return _StepView(
         title: 'Check the AI suggestion',
-        text:
-            'The simulated AI suggests a category from the photo. You can '
-            'change it if it looks wrong. Press Confirm when it’s right.',
+        text: 'Wait a moment while the simulated AI checks your photo…',
         target: DemoKeys.categoryField,
         scroll: true,
         nextLabel: 'Confirm',
+        doneTitle: 'AI suggestion ready',
+        doneText:
+            'The AI suggests “${DemoNav.selectedCategory ?? '-'}”. You can '
+            'change it in the list. Tap Confirm when it’s right.',
       );
     case 6:
-      if (DemoNav.isShown(DemoKeys.mapConfirm)) {
-        return _StepView(
-          title: 'Confirm the location',
-          text: 'The pin is already in place. Just press Confirm.',
-          target: DemoKeys.mapConfirm,
-        );
-      }
+      final map = DemoNav.isShown(DemoKeys.mapConfirm);
       return _StepView(
-        title: 'Set the location',
-        text: 'Tap “Set Location on Map” to see where the issue is pinned.',
-        target: DemoKeys.locationButton,
-        scroll: true,
+        title: map ? 'Confirm the location' : 'Set the location',
+        text: map
+            ? 'The pin is already in place. Just press Confirm.'
+            : 'Tap “Set Location on Map” to see where the issue is pinned.',
+        target: map ? DemoKeys.mapConfirm : DemoKeys.locationButton,
+        scroll: !map,
+        doneTitle: 'Location confirmed',
+        doneText: 'The issue is pinned on the map. Tap Next.',
       );
     case 7:
       return _StepView(
@@ -512,109 +484,101 @@ _StepView _viewFor(int step) {
         text: 'Everything is filled in. Tap “Submit Report”.',
         target: DemoKeys.submitButton,
         scroll: true,
+        doneTitle: 'Report sent!',
+        doneText: 'Your report $id was submitted. Tap Next to find it.',
       );
     case 8:
-      if (onHome && tab == 1) {
-        return _StepView(
-          title: 'Your new report',
-          text:
-              'Here is $id. Its status is Pending: the barangay has not acted on it yet.',
-          target: DemoKeys.demoReportCard,
-          onTab: 1,
-          scroll: true,
-        );
-      }
       return _StepView(
         title: 'Open My Reports',
-        text: 'Tap “My Reports” to find the report you just sent.',
+        text:
+            'Tap “My Reports” at the bottom to find the report you just sent.',
         navSlice: 1,
+        doneTitle: 'Your new report',
+        doneText:
+            'Here is $id. Its status is Pending: the barangay has not '
+            'acted on it yet.',
       );
     case 9:
-      if (onHome && tab == 2) {
-        return _StepView(
-          title: 'Your report was updated',
-          text:
-              'The barangay started working on it: $id changed from Pending '
-              'to In progress. Tap the notification to open it.',
-          target: DemoKeys.demoNotifCard,
-          onTab: 2,
-          scroll: true,
-          nextLabel: 'Open it',
-        );
-      }
       return _StepView(
         title: 'Check your alerts',
-        text: 'Tap “Notifications” to see what happened to your report.',
+        text: 'Tap “Alerts” at the bottom to see what happened to your report.',
         navSlice: 2,
+        doneTitle: 'Your report was updated',
+        doneText:
+            'The barangay started working on it: $id changed from Pending '
+            'to In progress.',
       );
     case 10:
+      final onAlerts = onHome && tab == 2;
       return _StepView(
-        title: 'Report Details',
-        text: 'The status now shows In progress, here and in My Reports.',
-        target: DemoKeys.detailsStatus,
+        title: 'Open the notification',
+        text: onAlerts
+            ? 'Tap the “$id is now In progress” notification to open the report.'
+            : 'Go to “Alerts” and tap the “$id is now In progress” notification.',
+        target: onAlerts ? DemoKeys.demoNotifCard : null,
+        onTab: 2,
+        navSlice: onAlerts ? null : 2,
+        scroll: true,
+        doneTitle: 'Report Details',
+        doneText: 'The status now shows In progress, here and in My Reports.',
       );
     case 11:
       return _StepView(
         title: 'Ask for an update',
-        text: 'Scroll down and tap “Ask your barangay about this report”.',
+        text: 'Tap “Ask your barangay about this report” below.',
         target: DemoKeys.askButton,
         scroll: true,
+        doneTitle: 'Chat with your barangay',
+        doneText: 'This chat is about $id. Tap Next to send a follow-up.',
       );
     case 12:
-      if (store.hasAskedFollowUp) {
-        return _StepView(
-          title: 'Waiting for the barangay',
-          text: 'The barangay is typing a reply (simulated)…',
-          target: DemoKeys.chatComposer,
-        );
-      }
       return _StepView(
-        title: 'Send a follow-up',
-        text: 'We wrote a message for you. Just press Send.',
+        title: store.hasAskedFollowUp
+            ? 'Waiting for the barangay'
+            : 'Send a follow-up',
+        text: store.hasAskedFollowUp
+            ? 'The barangay is typing a reply (simulated)…'
+            : 'We wrote a message for you. Just press the Send button.',
         target: DemoKeys.chatComposer,
-        nextLabel: 'Send',
+        doneTitle: 'The barangay replied',
+        doneText: '“Currently working for it.” Tap Next.',
       );
     case 13:
       return _StepView(
         title: 'Go back to My Reports',
-        text:
-            'The barangay replied. Now go back (top-left arrow or your '
-            'browser’s Back button) and open “My Reports”.',
+        text: onHome
+            ? 'Tap “My Reports” at the bottom.'
+            : 'Go back (top-left arrow or your browser’s Back button) to '
+                  'the main screen, then tap “My Reports”.',
         navSlice: 1,
-        nextLabel: 'Take me there',
+        doneTitle: 'Your report is resolved',
+        doneText: '$id now shows Resolved, and you got a new alert.',
       );
     case 14:
-      if (store.stage == DemoStage.rated) {
-        return _StepView(
-          title: 'Thanks for your feedback!',
-          text: 'Press Done to finish the tutorial.',
-          target: DemoKeys.rateDone,
-          scroll: true,
-          nextLabel: 'Done',
-        );
-      }
-      if (DemoNav.isShown(DemoKeys.rateSection)) {
-        return _StepView(
-          title: 'Rate the resolution',
-          text:
-              'We suggested 5 stars and a sample comment. Change them if you '
-              'like, then press “Submit Feedback”.',
-          target: DemoKeys.rateSection,
-          scroll: true,
-          nextLabel: 'Submit',
-        );
-      }
+      final rating = DemoNav.isShown(DemoKeys.rateSection);
+      final onList = onHome && tab == 1;
       return _StepView(
-        title: 'Your report is resolved',
-        text: '$id now shows Resolved. Tap it to rate how it was handled.',
-        target: onHome && tab == 1 ? DemoKeys.demoReportCard : null,
-        onTab: 1,
-        navSlice: onHome && tab == 1 ? null : 1,
+        title: 'Rate the resolution',
+        text: rating
+            ? 'We suggested 5 stars and a sample comment. Change them if you '
+                  'like, then press “Submit Feedback”.'
+            : onList
+            ? 'Tap $id to open it and rate how it was handled.'
+            : 'Go to “My Reports” and open $id.',
+        target: rating
+            ? DemoKeys.rateSection
+            : onList
+            ? DemoKeys.demoReportCard
+            : null,
+        onTab: rating ? null : 1,
+        navSlice: rating || onList ? null : 1,
         scroll: true,
-        nextLabel: 'Open it',
+        nextLabel: 'Finish',
+        doneTitle: 'Thanks for your feedback!',
+        doneText: 'Tap Finish to complete the tutorial.',
       );
   }
-  return _StepView(title: '', text: '');
+  return const _StepView(title: '', text: '');
 }
 
 // ============================================================
@@ -640,6 +604,13 @@ class _DemoLayerState extends State<DemoLayer>
 
   Rect? _hole;
   bool _homeShown = false;
+
+  // Overlay is shown only after the screen has settled (see _update).
+  bool _ready = false;
+  String _phase = '';
+  DateTime _phaseStart = DateTime(2000);
+  int _stableFrames = 0;
+  Rect? _lastRect;
   String _scrolledFor = '';
   DateTime _lastScroll = DateTime(2000);
 
@@ -686,23 +657,28 @@ class _DemoLayerState extends State<DemoLayer>
 
   void _update() {
     _tutorial.tick();
-    if (!_tutorial.active) return;
+    if (!_tutorial.active || _tutorial.showThanks) return;
 
-    final view = _viewFor(_tutorial.step);
+    final step = _tutorial.step;
+    final done = _tutorial.stepDone;
+    final info = TutorialController.isInfoStep(step);
+    final view = _viewFor(step);
+    final now = DateTime.now();
+
+    // Dim + spotlight only while the action is still to be done (or on
+    // the explanation steps). Once done, the screen stays normal.
+    final spotlight = info || !done;
+
     Rect? rect;
     final target = view.target;
-    if (target != null && DemoNav.isShown(target, onTab: view.onTab)) {
+    if (spotlight &&
+        target != null &&
+        DemoNav.isShown(target, onTab: view.onTab)) {
       rect = _rectOf(target);
-      // Bring the highlighted widget into view, and again if the layout
-      // moved it off-screen (e.g. an image above it finished loading).
-      final id = '${_tutorial.step}:${target.hashCode}';
-      final layer = _layerKey.currentContext?.findRenderObject();
-      final height = layer is RenderBox && layer.hasSize
-          ? layer.size.height
-          : double.infinity;
-      final offScreen =
-          rect != null && (rect.top < 0 || rect.bottom > height - 16);
-      final now = DateTime.now();
+      // Bring the target into view (again if the layout moves it away,
+      // e.g. an image above it finished loading).
+      final id = '$step:${target.hashCode}';
+      final offScreen = rect != null && !_fitsOnScreen(rect);
       final due = now.difference(_lastScroll).inMilliseconds > 700;
       if (view.scroll &&
           rect != null &&
@@ -716,7 +692,7 @@ class _DemoLayerState extends State<DemoLayer>
           curve: Curves.easeOut,
         );
       }
-    } else if (view.navSlice != null && DemoNav.homeIsCurrent) {
+    } else if (spotlight && view.navSlice != null && DemoNav.homeIsCurrent) {
       final bar = _rectOf(DemoKeys.navBar);
       if (bar != null) {
         final w = bar.width / 4;
@@ -728,13 +704,69 @@ class _DemoLayerState extends State<DemoLayer>
         );
       }
     }
-    if (rect != null) rect = rect.inflate(6);
+    if (rect != null) {
+      rect = rect.inflate(6);
+      // Only a target that is fully on screen can be highlighted.
+      if (!_fitsOnScreen(rect)) rect = null;
+    }
+
+    // A new step, a finished action or a target that (re)appears starts
+    // a new "phase": the overlay is hidden until the screen has settled.
+    final phase =
+        '$step|$spotlight|${target?.hashCode}|${view.navSlice}|${rect != null}';
+    if (phase != _phase) {
+      _phase = phase;
+      _phaseStart = now;
+      _stableFrames = 0;
+      _lastRect = null;
+      if (_ready || _hole != null) {
+        setState(() {
+          _ready = false;
+          _hole = null;
+        });
+      }
+    }
+
+    if (!_ready) {
+      final same =
+          rect != null &&
+          _lastRect != null &&
+          (rect.topLeft - _lastRect!.topLeft).distance < 0.5 &&
+          (rect.size - _lastRect!.size as Offset).distance < 0.5;
+      _stableFrames = same ? _stableFrames + 1 : 0;
+      _lastRect = rect;
+      final waited = now.difference(_phaseStart).inMilliseconds;
+      // Navigation/scroll finished: target has stopped moving.
+      final settled = rect != null && _stableFrames >= 8 && waited >= 350;
+      // Nothing to highlight (explanation, done, or target not on this
+      // screen): show the card once the transition is over.
+      final noTarget =
+          rect == null && (!spotlight || !view.hasTarget || waited >= 900);
+      if (settled || (noTarget && waited >= 350)) {
+        setState(() {
+          _ready = true;
+          _hole = rect;
+        });
+      }
+      return;
+    }
+
+    // Visible: follow the target if it moves (e.g. screen size change).
     if (rect != _hole) setState(() => _hole = rect);
+  }
+
+  bool _fitsOnScreen(Rect rect) {
+    final layer = _layerKey.currentContext?.findRenderObject();
+    if (layer is! RenderBox || !layer.hasSize) return false;
+    return rect.top >= -8 &&
+        rect.bottom <= layer.size.height + 8 &&
+        rect.left >= -8 &&
+        rect.right <= layer.size.width + 8;
   }
 
   @override
   Widget build(BuildContext context) {
-    final showTutorial = _tutorial.active && !_tutorial.showThanks;
+    final showTutorial = _tutorial.active && !_tutorial.showThanks && _ready;
     final view = showTutorial ? _viewFor(_tutorial.step) : null;
 
     return Stack(
@@ -755,65 +787,97 @@ class _DemoLayerState extends State<DemoLayer>
   }
 
   List<Widget> _buildTutorial(BuildContext context, _StepView view) {
-    final size = MediaQuery.of(context).size;
+    final media = MediaQuery.of(context);
+    final size = media.size;
     final hole = _hole;
+    final step = _tutorial.step;
+    final done = _tutorial.stepDone;
+    final info = TutorialController.isInfoStep(step);
 
-    // Expected highlight not on screen (e.g. a dropdown is open): show a
-    // small floating card that blocks nothing else.
+    _TooltipCard card({required bool finished}) => _TooltipCard(
+      title: finished ? (view.doneTitle ?? view.title) : view.title,
+      text: finished ? (view.doneText ?? view.text) : view.text,
+      tutorial: _tutorial,
+      nextLabel: view.nextLabel,
+      canNext: done,
+      done: finished,
+    );
+
+    // Floating card that blocks nothing: action done (screen stays
+    // normal), or the target is not on this screen yet.
+    Widget floating(Widget child) {
+      final bar = DemoNav.homeIsCurrent ? _rectOf(DemoKeys.navBar) : null;
+      final bottom = bar != null
+          ? size.height - bar.top + 10
+          : media.padding.bottom + 12;
+      return Positioned(left: 12, right: 12, bottom: bottom, child: child);
+    }
+
+    if (!info && done) return [floating(card(finished: true))];
     if (view.hasTarget && hole == null) {
+      return [floating(card(finished: false))];
+    }
+
+    // Explanation without a target (welcome): dim + centred card.
+    if (hole == null) {
       return [
-        Positioned(
-          left: 12,
-          right: 12,
-          bottom: 84,
-          child: _TooltipCard(view: view, tutorial: _tutorial, hole: null),
+        Positioned.fill(child: _SpotlightBarrier(hole: null)),
+        Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: card(finished: false),
+          ),
         ),
       ];
     }
 
-    final card = _TooltipCard(
-      view: view,
-      tutorial: _tutorial,
-      hole: hole,
-      layerHeight: size.height,
+    // Tooltip on the side of the target with more room, never over it.
+    final topLimit = media.padding.top + 8;
+    final bottomLimit = size.height - media.padding.bottom - 8;
+    final spaceAbove = hole.top - 12 - topLimit;
+    final spaceBelow = bottomLimit - hole.bottom - 12;
+    final below = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+    final space = (below ? spaceBelow : spaceAbove).clamp(140.0, size.height);
+    final tooltip = ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: space),
+      child: card(finished: false),
     );
-
-    Widget positioned;
-    if (hole == null) {
-      positioned = Center(
-        child: Padding(padding: const EdgeInsets.all(16), child: card),
-      );
-    } else if (hole.center.dy < size.height / 2) {
-      positioned = Positioned(
-        left: 12,
-        right: 12,
-        top: (hole.bottom + 10).clamp(0, size.height - 220),
-        child: card,
-      );
-    } else {
-      positioned = Positioned(
-        left: 12,
-        right: 12,
-        bottom: (size.height - hole.top + 10).clamp(0, size.height - 220),
-        child: card,
-      );
-    }
 
     return [
       Positioned.fill(child: _SpotlightBarrier(hole: hole)),
-      if (hole != null)
-        Positioned.fromRect(
-          rect: hole,
-          child: IgnorePointer(
-            child: Container(
-              decoration: BoxDecoration(
-                border: Border.all(color: AppColors.accent, width: 3),
-                borderRadius: BorderRadius.circular(14),
-              ),
+      // White halo + accent ring drawn OUTSIDE the target, so the
+      // target itself is never covered or dimmed.
+      Positioned.fromRect(
+        rect: hole.inflate(4),
+        child: IgnorePointer(
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.white, width: 4),
+              borderRadius: BorderRadius.circular(18),
             ),
           ),
         ),
-      positioned,
+      ),
+      Positioned.fromRect(
+        rect: hole.inflate(1),
+        child: IgnorePointer(
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: AppColors.accent, width: 3),
+              borderRadius: BorderRadius.circular(15),
+            ),
+          ),
+        ),
+      ),
+      if (below)
+        Positioned(left: 12, right: 12, top: hole.bottom + 12, child: tooltip)
+      else
+        Positioned(
+          left: 12,
+          right: 12,
+          bottom: size.height - hole.top + 12,
+          child: tooltip,
+        ),
     ];
   }
 
@@ -966,24 +1030,26 @@ Future<void> confirmDemoReset(BuildContext context) async {
 
 class _TooltipCard extends StatelessWidget {
   const _TooltipCard({
-    required this.view,
+    required this.title,
+    required this.text,
     required this.tutorial,
-    required this.hole,
-    this.layerHeight = 0,
+    required this.nextLabel,
+    required this.canNext,
+    this.done = false,
   });
 
-  final _StepView view;
+  final String title;
+  final String text;
   final TutorialController tutorial;
-  final Rect? hole;
-  final double layerHeight;
+  final String nextLabel;
+  final bool canNext;
+
+  /// The step's action was completed (shows a check mark).
+  final bool done;
 
   @override
   Widget build(BuildContext context) {
     final step = tutorial.step;
-    final needsScroll =
-        view.scroll &&
-        hole != null &&
-        (hole!.bottom > layerHeight - 60 || hole!.top < 0);
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 420),
@@ -991,7 +1057,8 @@ class _TooltipCard extends StatelessWidget {
         color: Colors.white,
         elevation: 8,
         borderRadius: BorderRadius.circular(18),
-        child: Padding(
+        clipBehavior: Clip.antiAlias,
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1021,18 +1088,32 @@ class _TooltipCard extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              Text(
-                view.title,
-                style: const TextStyle(
-                  fontFamily: appHeadingFontFamily,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 16,
-                  color: AppColors.ink,
-                ),
+              Row(
+                children: [
+                  if (done) ...[
+                    const Icon(
+                      Icons.check_circle_rounded,
+                      color: AppColors.success,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontFamily: appHeadingFontFamily,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 16,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
-                view.text,
+                text,
                 style: const TextStyle(
                   fontFamily: appFontFamily,
                   fontSize: 13.5,
@@ -1040,15 +1121,25 @@ class _TooltipCard extends StatelessWidget {
                   color: AppColors.textSecondary,
                 ),
               ),
-              if (needsScroll) ...[
-                const SizedBox(height: 6),
+              if (!canNext) ...[
+                const SizedBox(height: 8),
                 const Row(
                   children: [
-                    Icon(Icons.keyboard_double_arrow_down_rounded, size: 18),
-                    SizedBox(width: 4),
-                    Text(
-                      'Scroll down',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                    Icon(
+                      Icons.touch_app_rounded,
+                      size: 18,
+                      color: AppColors.accent,
+                    ),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Do the highlighted action to continue.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.accent,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1081,12 +1172,13 @@ class _TooltipCard extends StatelessWidget {
                           child: const Text('Back'),
                         ),
                       const SizedBox(width: 4),
+                      // Disabled until the step's action is really done.
                       FilledButton(
-                        onPressed: tutorial.next,
+                        onPressed: canNext ? tutorial.next : null,
                         style: FilledButton.styleFrom(
                           minimumSize: const Size(64, 44),
                         ),
-                        child: Text(view.nextLabel),
+                        child: Text(nextLabel),
                       ),
                     ],
                   ),
@@ -1179,25 +1271,24 @@ class _RenderSpotlight extends RenderBox {
 
   @override
   void paint(PaintingContext context, Offset offset) {
-    final canvas = context.canvas;
-    final outer = Path()..addRect(offset & size);
-    final paint = Paint()..color = Colors.black.withValues(alpha: 0.55);
-    if (_hole == null) {
-      canvas.drawPath(outer, paint);
-      return;
-    }
-    final inner = Path()
-      ..addRRect(
+    final paint = Paint()..color = Colors.black.withValues(alpha: 0.6);
+    // Even-odd fill: the outer rectangle is dimmed and the inner rounded
+    // rectangle (the target) is left completely untouched. (Path.combine
+    // is not reliable in the web renderer.)
+    final path = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(offset & size);
+    if (_hole != null) {
+      path.addRRect(
         RRect.fromRectAndRadius(
           _hole!.shift(offset),
           const Radius.circular(14),
         ),
       );
-    canvas.drawPath(
-      Path.combine(PathOperation.difference, outer, inner),
-      paint,
-    );
+    }
+    context.canvas.drawPath(path, paint);
   }
+
 }
 
 // ============================================================
