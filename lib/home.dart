@@ -1,0 +1,1255 @@
+import 'dart:convert';
+
+import 'package:citisense/api_config.dart';
+
+import 'package:flutter/material.dart';
+import 'package:citisense/announcement_details_page.dart';
+import 'package:citisense/api_client.dart';
+import 'package:citisense/barangay_messages_page.dart';
+import 'package:citisense/app_theme.dart';
+import 'package:citisense/auth_session.dart';
+import 'package:citisense/live_updates.dart';
+import 'package:citisense/mascot.dart';
+import 'package:citisense/notification_router.dart';
+import 'package:http/http.dart' as http;
+
+import 'package:citisense/report_issue_overlay.dart';
+import 'package:citisense/settings_page.dart';
+import 'package:citisense/ui_components.dart';
+import 'package:citisense/my_reports.dart';
+import 'package:citisense/notification_page.dart';
+
+class HomePage extends StatefulWidget {
+  // ============================================================
+  // LOGGED-IN USER INFORMATION
+  // ============================================================
+
+  final String userID;
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String contactNo;
+  final String? profilePic;
+  final String barangayID;
+
+  const HomePage({
+    super.key,
+    required this.userID,
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.contactNo,
+    this.profilePic,
+    required this.barangayID,
+  });
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  // ============================================================
+  // VARIABLES
+  // ============================================================
+
+  int _selectedIndex = 0;
+
+  // Increases every time Home is tapped so the mascot waves again.
+  int _waveToken = 0;
+
+  // Latest user information
+  String _userID = '';
+  String _firstName = '';
+  String _lastName = '';
+  String _email = '';
+  String _contactNo = '';
+  String? _profilePic;
+  String _barangayID = '';
+  String _barangayName = '';
+
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  // ============================================================
+  // ANNOUNCEMENT VARIABLES
+  // ============================================================
+
+  List<Map<String, dynamic>> _announcements = [];
+
+  bool _isLoadingAnnouncements = true;
+
+  // ============================================================
+  // API URLS
+  // ============================================================
+
+  static const String _getProfileUrl =
+      // 'http://192.168.1.6/citisense/api/get_profile.php';
+      '$apiBaseUrl/get_profile.php';
+  //'http://10.127.214.252/citisense/api/get_profile.php';
+  //'http://192.168.83.252/citisense/api/get_profile.php';
+  static const String _getAnnouncementsUrl =
+      // 'http://192.168.1.6/citisense/api/get_announcements.php';
+      '$apiBaseUrl/get_announcements.php';
+  //'http://10.127.214.252/citisense/api/get_announcements.php';
+  //'http://192.168.83.252/citisense/api/get_announcements.php';
+
+  // ============================================================
+  // INIT STATE
+  // ============================================================
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Start with the information received from LoginPage.
+    // get_profile.php will then replace these with the latest
+    // information from the database.
+
+    _userID = widget.userID;
+
+    _firstName = widget.firstName;
+    _lastName = widget.lastName;
+    _email = widget.email;
+    _contactNo = widget.contactNo;
+    _profilePic = widget.profilePic;
+    _barangayID = widget.barangayID;
+
+    // Load independently: the home page and announcements must not wait
+    // for the profile endpoint (which may time out on this network).
+    _loadAnnouncements();
+    _loadBarangayName();
+    _loadUserData();
+
+    // Keep announcements fresh automatically and register this phone
+    // for push notifications.
+    LiveUpdates.instance.start(
+      userID: widget.userID,
+      barangayID: widget.barangayID,
+    );
+    LiveUpdates.instance.changes.addListener(_onLiveUpdate);
+
+    // Notifications can now open reports and announcements (including a
+    // push that started the app).
+    NotificationRouter.attach(
+      userID: widget.userID,
+      barangayID: widget.barangayID,
+    );
+  }
+
+  @override
+  void dispose() {
+    LiveUpdates.instance.changes.removeListener(_onLiveUpdate);
+    super.dispose();
+  }
+
+  /// Keeps the saved session in step with the latest profile, so the app
+  /// opens with the right name and picture next time.
+  void _saveSessionUser() {
+    final saved = AuthSession.user;
+    if (saved == null || saved.userID != widget.userID) return;
+    AuthSession.updateUser(
+      SessionUser(
+        userID: widget.userID,
+        firstName: _firstName,
+        lastName: _lastName,
+        email: _email,
+        contactNo: _contactNo,
+        profilePic: _profilePic,
+        barangayID: _barangayID,
+      ),
+    );
+  }
+
+  /// Settings saved new personal details (including a new picture).
+  void _onProfileUpdated(Map<String, dynamic> details) {
+    if (!mounted) return;
+    setState(() {
+      _firstName = details['firstName']?.toString() ?? _firstName;
+      _lastName = details['lastName']?.toString() ?? _lastName;
+      _email = details['email']?.toString() ?? _email;
+      _contactNo = details['contactNo']?.toString() ?? _contactNo;
+      final barangay = details['barangayID']?.toString() ?? '';
+      if (barangay.isNotEmpty) _barangayID = barangay;
+      final pic = details['profilePic']?.toString() ?? '';
+      if (pic.isNotEmpty) _profilePic = pic;
+    });
+    _saveSessionUser();
+  }
+
+  void _onLiveUpdate() {
+    if (!mounted) return;
+    LiveUpdates.instance.start(userID: widget.userID, barangayID: _barangayID);
+    _loadAnnouncements(silent: true);
+  }
+
+  // ============================================================
+  // LOAD USER DATA
+  // ============================================================
+
+  Future<void> _loadUserData() async {
+    if (!mounted) return;
+
+    // Do not hide the home page while the optional profile refresh runs.
+    // LoginPage already supplied the user's identity and barangay ID.
+    debugPrint('[HOME] Starting profile refresh for ${widget.userID}');
+
+    try {
+      // ----------------------------------------------------------
+      // GET LATEST USER INFORMATION FROM DATABASE
+      // ----------------------------------------------------------
+
+      final uri = Uri.parse(
+        '$_getProfileUrl?userID='
+        '${Uri.encodeComponent(widget.userID)}',
+      );
+
+      debugPrint('[HOME] Profile request URL: $uri');
+      final response = await http
+          .get(uri, headers: {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 15));
+
+      debugPrint('get_profile.php status: ${response.statusCode}');
+
+      debugPrint('get_profile.php response: ${response.body}');
+
+      if (response.statusCode != 200) {
+        throw Exception('Server returned status code ${response.statusCode}');
+      }
+
+      final decoded = jsonDecode(response.body);
+
+      if (decoded['success'] != true) {
+        throw Exception(decoded['message'] ?? 'Unable to load your profile.');
+      }
+
+      final data = decoded['data'];
+
+      if (data == null) {
+        throw Exception('No profile information was returned.');
+      }
+
+      final String latestFirstName = data['firstName']?.toString().trim() ?? '';
+
+      final String latestLastName = data['lastName']?.toString().trim() ?? '';
+
+      final String latestEmail = data['email']?.toString().trim() ?? '';
+
+      final String latestContactNo = data['contactNo']?.toString().trim() ?? '';
+
+      final String latestBarangayID =
+          data['barangayID']?.toString().trim() ?? '';
+
+      final String latestBarangayName =
+          data['barangayName']?.toString().trim() ?? '';
+
+      final String? latestProfilePic = data['profilePic']?.toString();
+
+      if (!mounted) return;
+
+      setState(() {
+        _userID = widget.userID;
+
+        _firstName = latestFirstName.isNotEmpty ? latestFirstName : 'User';
+
+        _lastName = latestLastName;
+
+        _email = latestEmail;
+
+        _contactNo = latestContactNo;
+
+        // Keep the login-provided ID if the profile is missing it.
+        if (latestBarangayID.isNotEmpty) _barangayID = latestBarangayID;
+        if (latestBarangayName.isNotEmpty) _barangayName = latestBarangayName;
+
+        _profilePic =
+            latestProfilePic != null && latestProfilePic.trim().isNotEmpty
+            ? latestProfilePic
+            : null;
+
+        _isLoading = false;
+        _errorMessage = null;
+      });
+
+      _saveSessionUser();
+      NotificationRouter.attach(userID: widget.userID, barangayID: _barangayID);
+
+      // Refresh announcements only if the profile changed the barangay.
+      if (latestBarangayID.isNotEmpty &&
+          latestBarangayID != widget.barangayID) {
+        _loadAnnouncements();
+        _loadBarangayName();
+      }
+    } catch (e) {
+      debugPrint('Error loading user profile: $e');
+
+      if (!mounted) return;
+
+      // If the API cannot be reached, keep the original
+      // information received from LoginPage.
+
+      setState(() {
+        _userID = widget.userID;
+
+        // Keep details already shown (e.g. just saved in Settings).
+        if (_firstName.trim().isEmpty) _firstName = widget.firstName.trim();
+
+        if (_firstName.isEmpty) {
+          _firstName = 'User';
+        }
+
+        if (_lastName.isEmpty) _lastName = widget.lastName;
+
+        if (_email.isEmpty) _email = widget.email;
+
+        if (_contactNo.isEmpty) _contactNo = widget.contactNo;
+
+        // Keep a picture saved in Settings during this visit.
+        _profilePic ??= widget.profilePic;
+
+        // Preserve whatever other requests have already loaded.
+        if (_barangayID.isEmpty) _barangayID = widget.barangayID;
+
+        _isLoading = false;
+
+        // Keep showing the user data supplied by login.php.
+        // An unavailable profile refresh should not block HomePage.
+        _errorMessage = null;
+      });
+
+      // Announcements and barangay-name lookup are already running
+      // independently; do not restart or clear them here.
+    }
+  }
+
+  // ============================================================
+  // BARANGAY NAME (INDEPENDENT OF PROFILE)
+  // ============================================================
+
+  Future<void> _loadBarangayName() async {
+    final currentID = _barangayID.trim();
+    if (currentID.isEmpty) return;
+
+    try {
+      final uri = Uri.parse('$apiBaseUrl/get_barangays.php');
+      debugPrint('[HOME] Barangays request URL: $uri');
+      final response = await http
+          .get(uri, headers: {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 10));
+
+      debugPrint('[HOME] Barangays HTTP status: ${response.statusCode}');
+      if (response.statusCode != 200) return;
+
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map || decoded['success'] != true) return;
+      final data = decoded['data'];
+      if (data is! List) return;
+
+      for (final item in data) {
+        if (item is! Map) continue;
+        if (item['barangayID']?.toString().trim() == currentID) {
+          final name = item['barangayName']?.toString().trim() ?? '';
+          if (mounted && _barangayID == currentID && name.isNotEmpty) {
+            setState(() => _barangayName = name);
+            debugPrint('[HOME] Barangay loaded: $currentID');
+          }
+          return;
+        }
+      }
+      debugPrint('[HOME] No barangay name found for $currentID');
+    } catch (e) {
+      debugPrint('[HOME] Barangay name lookup failed: $e');
+      // A name lookup failure does not hide announcements.
+    }
+  }
+
+  // ============================================================
+  // LOAD ANNOUNCEMENTS
+  // ============================================================
+
+  // silent: refresh in the background without showing the loader.
+  Future<void> _loadAnnouncements({bool silent = false}) async {
+    if (!mounted) return;
+
+    if (!silent) {
+      setState(() {
+        _isLoadingAnnouncements = true;
+      });
+    }
+
+    try {
+      // ----------------------------------------------------------
+      // USE THE CURRENT BARANGAY ID
+      // ----------------------------------------------------------
+
+      if (_barangayID.trim().isEmpty) {
+        if (!mounted) return;
+
+        setState(() {
+          _announcements = [];
+          _isLoadingAnnouncements = false;
+        });
+
+        return;
+      }
+
+      // ----------------------------------------------------------
+      // GET ANNOUNCEMENTS FOR CURRENT USER'S BARANGAY
+      // ----------------------------------------------------------
+
+      final uri = Uri.parse(
+        '$_getAnnouncementsUrl?barangayID='
+        '${Uri.encodeComponent(_barangayID)}',
+      );
+
+      debugPrint('[HOME] Announcements URL: $uri');
+      final response = await http
+          .get(uri, headers: {'Accept': 'application/json'})
+          .timeout(const Duration(seconds: 15));
+
+      debugPrint('Announcements status: ${response.statusCode}');
+
+      debugPrint('Announcements response: ${response.body}');
+
+      if (response.statusCode != 200) {
+        throw Exception('Server returned status code ${response.statusCode}');
+      }
+
+      final decoded = jsonDecode(response.body);
+
+      if (decoded['success'] != true) {
+        throw Exception(decoded['message'] ?? 'Unable to load announcements.');
+      }
+
+      ServerClock.syncFromBody(decoded);
+
+      final List<dynamic> data = decoded['data'] ?? [];
+
+      final List<Map<String, dynamic>> loadedAnnouncements = data
+          .map<Map<String, dynamic>>((item) => Map<String, dynamic>.from(item))
+          .toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _announcements = loadedAnnouncements;
+
+        _isLoadingAnnouncements = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading announcements: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        // A failed background refresh keeps the current list.
+        if (!silent) _announcements = [];
+        _isLoadingAnnouncements = false;
+      });
+    }
+  }
+
+  // ============================================================
+  // REFRESH HOME PAGE
+  // ============================================================
+
+  Future<void> _refreshHomePage() async {
+    await Future.wait([
+      _loadUserData(),
+      _loadBarangayName(),
+      _loadAnnouncements(),
+    ]);
+  }
+
+  // ============================================================
+  // REPORT ISSUE
+  // ============================================================
+
+  void _openReportIssue() {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) =>
+          ReportIssueOverlay(userID: widget.userID, barangayID: _barangayID),
+    ).then((_) {
+      // A new report may have been submitted: refresh My Reports.
+      LiveUpdates.instance.notifyChanged();
+      LiveUpdates.instance.checkNow();
+    });
+  }
+
+  // ============================================================
+  // BOTTOM NAVIGATION
+  // ============================================================
+
+  void _onItemTapped(int index) {
+    if (index == 0) {
+      _waveToken++;
+    }
+
+    // ----------------------------------------------------------
+    // IF USER RETURNS TO HOME, GET THE LATEST PROFILE DATA
+    // ----------------------------------------------------------
+
+    if (index == 0 && _selectedIndex != 0) {
+      setState(() {
+        _selectedIndex = index;
+      });
+
+      _refreshHomePage();
+      return;
+    }
+
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _buildHomeContent(),
+
+      // ========================================================
+      // MY REPORTS
+      // ========================================================
+      MyReportsPage(
+        userID: _userID,
+        firstName: _firstName,
+        barangayID: _barangayID,
+        barangayName: _barangayName,
+      ),
+
+      NotificationPage(
+        userID: _userID,
+        barangayID: _barangayID,
+        barangayName: _barangayName,
+      ),
+
+      // ========================================================
+      // SETTINGS PAGE
+      // ========================================================
+      SettingsPage(
+        userID: widget.userID,
+        firstName: _firstName,
+        lastName: _lastName,
+        email: _email,
+        contactNo: _contactNo,
+        profilePic: _profilePic,
+        barangayID: _barangayID,
+        barangayName: _barangayName,
+        onProfileUpdated: _onProfileUpdated,
+      ),
+    ];
+
+    // Back button: from another tab go to Home first; on Home, leave the
+    // app (Home is the first page, so Log In is never shown). The user
+    // stays logged in until they choose Log Out.
+    return PopScope(
+      canPop: _selectedIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _selectedIndex != 0) _onItemTapped(0);
+      },
+      child: Scaffold(
+        backgroundColor: backgroundColor,
+
+        // ========================================================
+        // BODY
+        // ========================================================
+        body: SafeArea(
+          child: _isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: primaryBlue),
+                )
+              : _errorMessage != null
+              ? _buildErrorPage()
+              : IndexedStack(index: _selectedIndex, children: pages),
+        ),
+
+        // ========================================================
+        // BOTTOM NAVIGATION
+        // ========================================================
+        bottomNavigationBar: DecoratedBox(
+          decoration: const BoxDecoration(
+            border: Border(top: BorderSide(color: AppColors.divider)),
+          ),
+          child: BottomNavigationBar(
+            currentIndex: _selectedIndex,
+            onTap: _onItemTapped,
+            type: BottomNavigationBarType.fixed,
+            backgroundColor: Colors.white,
+            selectedItemColor: AppColors.primary,
+            unselectedItemColor: textGrey,
+            selectedFontSize: 12,
+            unselectedFontSize: 12,
+            selectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontFamily: appHeadingFontFamily,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontFamily: appHeadingFontFamily,
+            ),
+            elevation: 0,
+            items: const [
+              BottomNavigationBarItem(
+                icon: Icon(Icons.home_outlined),
+                activeIcon: Icon(Icons.home),
+                label: 'Home',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.assignment_outlined),
+                activeIcon: Icon(Icons.assignment),
+                label: 'My Reports',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.notifications_none),
+                activeIcon: Icon(Icons.notifications),
+                label: 'Notifications',
+              ),
+              BottomNavigationBarItem(
+                icon: Icon(Icons.settings_outlined),
+                activeIcon: Icon(Icons.settings),
+                label: 'Settings',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // HOME PAGE CONTENT
+  // ============================================================
+
+  Widget _buildHomeContent() {
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Good morning,'
+        : hour < 17
+        ? 'Good afternoon,'
+        : 'Good evening,';
+
+    return RefreshIndicator(
+      onRefresh: _refreshHomePage,
+      color: primaryBlue,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 30),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CitiPageHeader(
+                barangayName: _barangayName,
+                eyebrow: greeting,
+                title: '${_firstName.isNotEmpty ? _firstName : 'User'}!',
+                description:
+                    'Let’s work together for a safer and cleaner community.',
+                mascot: CitiMascot(
+                  pose: MascotPose.wave,
+                  playToken: _waveToken,
+                  // Community scene behind the waving mascot.
+                  backdrop: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _openReportIssue,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  child: Ink(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [AppColors.primary, AppColors.primaryDark],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.primary.withValues(alpha: 0.28),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 23,
+                        horizontal: 18,
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            width: 86,
+                            height: 86,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: .85),
+                                width: 1.4,
+                                style: BorderStyle.solid,
+                              ),
+                            ),
+                            child: const Icon(
+                              Icons.add,
+                              size: 52,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Report an Issue',
+                            style: TextStyle(
+                              fontFamily: appHeadingFontFamily,
+                              fontSize: 21,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(height: 7),
+                          const Text(
+                            'Tap to report a problem\nin your community',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: appFontFamily,
+                              fontSize: 15,
+                              height: 1.5,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              _buildMessagesCard(),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  // Mascot holding a megaphone (static).
+                  const SizedBox(
+                    width: 64,
+                    height: 62,
+                    child: CitiMascot(pose: MascotPose.megaphone),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Announcements',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: darkBlue,
+                            fontFamily: appHeadingFontFamily,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          _barangayName.isNotEmpty
+                              ? 'From Barangay $_barangayName'
+                              : 'From your barangay',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: textGrey,
+                            fontFamily: appFontFamily,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildAnnouncements(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // ANNOUNCEMENTS
+  // ============================================================
+
+  Widget _buildAnnouncements() {
+    // ----------------------------------------------------------
+    // NO BARANGAY
+    // ----------------------------------------------------------
+
+    if (_barangayID.trim().isEmpty) {
+      return _buildEmptyCard(
+        icon: Icons.location_off_outlined,
+        message: 'Select a barangay to view announcements.',
+      );
+    }
+
+    // ----------------------------------------------------------
+    // LOADING
+    // ----------------------------------------------------------
+
+    if (_isLoadingAnnouncements) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(25),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(10),
+            child: CircularProgressIndicator(color: primaryBlue),
+          ),
+        ),
+      );
+    }
+
+    // ----------------------------------------------------------
+    // NO ANNOUNCEMENTS
+    // ----------------------------------------------------------
+
+    if (_announcements.isEmpty) {
+      return _buildEmptyCard(
+        icon: Icons.campaign_outlined,
+        message: 'No announcements available for your barangay.',
+      );
+    }
+
+    // ----------------------------------------------------------
+    // ANNOUNCEMENT LIST
+    // ----------------------------------------------------------
+
+    return Column(
+      children: List.generate(_announcements.length, (index) {
+        final announcement = _announcements[index];
+
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: index == _announcements.length - 1 ? 0 : 15,
+          ),
+          child: _buildAnnouncementCard(announcement),
+        );
+      }),
+    );
+  }
+
+  // ============================================================
+  // ANNOUNCEMENT CARD
+  // ------------------------------------------------------------
+  // Picture (or the barangay icon when there is none) on the left,
+  // title, date and a short preview on the right, and a footer with
+  // the comment count. Tapping opens the details page.
+  // ============================================================
+
+  Widget _buildAnnouncementCard(Map<String, dynamic> announcement) {
+    final title = announcement['title']?.toString().trim() ?? '';
+    final content = announcement['content']?.toString().trim() ?? '';
+    final date = parseApiTime(announcement['datePosted']);
+    final images = announcementImages(announcement);
+    final int comments =
+        int.tryParse(announcement['commentCount']?.toString() ?? '') ?? 0;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: AppShadows.card,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openAnnouncement(announcement),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildAnnouncementThumbnail(images),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title.isNotEmpty ? title : 'Announcement',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: appHeadingFontFamily,
+                              fontSize: 15.5,
+                              height: 1.25,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          if (date != null) ...[
+                            const SizedBox(height: 5),
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.schedule_rounded,
+                                  size: 14,
+                                  color: textGrey,
+                                ),
+                                const SizedBox(width: 4),
+                                Flexible(
+                                  child: Text(
+                                    relativeTime(date),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: textGrey,
+                                      fontFamily: appFontFamily,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                          const SizedBox(height: 6),
+                          Text(
+                            content.isNotEmpty
+                                ? content
+                                : 'No announcement details available.',
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              height: 1.45,
+                              color: textGrey,
+                              fontFamily: appFontFamily,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: AppColors.divider),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 16,
+                      color: textGrey,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        comments == 0
+                            ? 'No comments yet'
+                            : comments == 1
+                            ? '1 comment'
+                            : '$comments comments',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: appFontFamily,
+                          fontSize: 12.5,
+                          color: textGrey,
+                        ),
+                      ),
+                    ),
+                    const Text(
+                      'View details',
+                      style: TextStyle(
+                        fontFamily: appHeadingFontFamily,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: primaryBlue,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 18,
+                      color: primaryBlue,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // OPEN ANNOUNCEMENT DETAILS
+  // ============================================================
+
+  Future<void> _openAnnouncement(Map<String, dynamic> announcement) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AnnouncementDetailsPage(
+          announcement: announcement,
+          userID: widget.userID,
+        ),
+      ),
+    );
+    // Comment counts may have changed.
+    if (mounted) _loadAnnouncements(silent: true);
+  }
+
+  // ============================================================
+  // ANNOUNCEMENT THUMBNAIL
+  // ------------------------------------------------------------
+  // First picture, cropped to fill a fixed square (no stretching);
+  // "+N" when there are more. The barangay icon when there is none.
+  // ============================================================
+
+  Widget _buildAnnouncementThumbnail(List<String> images) {
+    const double size = 84;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(AppRadius.md),
+      child: SizedBox(
+        width: size,
+        height: size,
+        child: images.isEmpty
+            ? Container(
+                decoration: BoxDecoration(
+                  color: AppColors.primarySoft,
+                  border: Border.all(color: AppColors.primaryBorder),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                ),
+                child: const Icon(
+                  Icons.account_balance,
+                  size: 36,
+                  color: primaryBlue,
+                ),
+              )
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  AnnouncementNetworkImage(url: images.first),
+                  if (images.length > 1)
+                    Positioned(
+                      right: 5,
+                      bottom: 5,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '+${images.length - 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // MESSAGE YOUR BARANGAY
+  // ============================================================
+
+  Widget _buildMessagesCard() {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(AppRadius.lg),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => BarangayMessagesPage(userID: widget.userID),
+          ),
+        ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: AppColors.primaryBorder),
+          ),
+          child: const Row(
+            children: [
+              CircleAvatar(
+                radius: 23,
+                backgroundColor: AppColors.primarySoft,
+                child: Icon(Icons.forum_rounded, color: primaryBlue, size: 24),
+              ),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Message your barangay',
+                      style: TextStyle(
+                        fontFamily: appHeadingFontFamily,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: darkBlue,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Ask a question or follow up on a concern.',
+                      style: TextStyle(
+                        fontFamily: appFontFamily,
+                        fontSize: 12.5,
+                        height: 1.4,
+                        color: textGrey,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right_rounded, color: textGrey, size: 28),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // EMPTY STATE CARD
+  // ============================================================
+
+  Widget _buildEmptyCard({required IconData icon, required String message}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(25),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(color: AppColors.divider),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 36, color: AppColors.textMuted),
+
+          const SizedBox(height: 10),
+
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 14,
+              color: AppColors.textSecondary,
+              fontFamily: appFontFamily,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // PLACEHOLDER PAGES
+  // ============================================================
+
+  Widget _buildPlaceholderPage({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(25),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 65, color: primaryBlue),
+
+            const SizedBox(height: 20),
+
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: darkBlue,
+                fontFamily: appHeadingFontFamily,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                color: AppColors.textSecondary,
+                fontFamily: appFontFamily,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // ERROR PAGE
+  // ============================================================
+
+  Widget _buildErrorPage() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(25),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 55, color: AppColors.danger),
+
+            const SizedBox(height: 15),
+
+            Text(
+              _errorMessage ?? 'Something went wrong.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, fontFamily: appFontFamily),
+            ),
+
+            const SizedBox(height: 20),
+
+            ElevatedButton(
+              onPressed: () {
+                _loadUserData();
+              },
+              child: const Text('Try Again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
