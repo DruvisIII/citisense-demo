@@ -68,13 +68,14 @@ Map<String, String> _fields(http.Request request) {
 }
 
 Map<String, dynamic> _userJson(DemoAccount a) => {
+  // No barangay until the tester picks one after the first login.
+  'barangayID': DemoStore.instance.onboarded ? kDemoBarangayID : '',
   'userID': a.userID,
   'firstName': a.firstName,
   'lastName': a.lastName,
   'email': a.email,
   'contactNo': '09170000000',
   'profilePic': null,
-  'barangayID': kDemoBarangayID,
 };
 
 Future<http.Response> _handle(http.Request request) async {
@@ -168,11 +169,18 @@ Future<http.Response> _handle(http.Request request) async {
         'reason': sample.reason,
       });
 
+    case 'register.php':
+      // Demo onboarding: the barangay chosen after the first login.
+      await store.setOnboarded();
+      return _json({'success': true, 'message': 'Barangay saved.'});
+
     case 'submit_report.php':
       final id = await store.submitReport(
         categoryID: f['categoryID'] ?? 'CATE004',
         description: f['description'] ?? '',
         address: f['address'] ?? '',
+        latitude: double.tryParse(f['latitude'] ?? ''),
+        longitude: double.tryParse(f['longitude'] ?? ''),
       );
       return _json({
         'success': true,

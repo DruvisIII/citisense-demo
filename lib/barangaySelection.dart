@@ -7,6 +7,10 @@ import 'package:citisense/app_theme.dart';
 import 'package:citisense/mascot.dart';
 import 'package:http/http.dart' as http;
 import 'package:citisense/login.dart';
+import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/tutorial.dart';
+import 'package:citisense/session_manager.dart';
 
 class BarangaySelection extends StatefulWidget {
   final String firstName;
@@ -24,7 +28,14 @@ class BarangaySelection extends StatefulWidget {
     required this.contactNumber,
     required this.password,
     required this.registrationToken,
+    this.demoUser,
+    this.demoAuthToken,
   });
+
+  /// Demo onboarding after the first login: the logged-in account and
+  /// its session token (the barangay is saved, then Home opens).
+  final SessionUser? demoUser;
+  final String? demoAuthToken;
 
   @override
   State<BarangaySelection> createState() => _BarangaySelectionState();
@@ -51,6 +62,7 @@ class _BarangaySelectionState extends State<BarangaySelection> {
 
     _searchController.addListener(_filterBarangays);
     _loadBarangays();
+    if (kDemoMode) DemoNav.barangaySelected = false;
   }
 
   @override
@@ -190,6 +202,15 @@ class _BarangaySelectionState extends State<BarangaySelection> {
       if (response.statusCode == 200 && decoded['success'] == true) {
         if (!mounted) return;
 
+        final demoUser = widget.demoUser;
+        if (kDemoMode && demoUser != null) {
+          final user = demoUser.copyWith(barangayID: _selectedBarangayId);
+          await AuthSession.save(widget.demoAuthToken ?? '', user);
+          if (!mounted) return;
+          SessionManager.openHome(context, user);
+          return;
+        }
+
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Account created successfully!'),
@@ -245,6 +266,9 @@ class _BarangaySelectionState extends State<BarangaySelection> {
         clipBehavior: Clip.none,
         children: [
           Padding(
+            key: kDemoMode && barangayId == kDemoBarangayID
+                ? DemoKeys.barangayTile
+                : null,
             padding: const EdgeInsets.only(left: 40),
             child: Material(
               color: isSelected ? AppColors.primarySoft : AppColors.surface,
@@ -257,6 +281,7 @@ class _BarangaySelectionState extends State<BarangaySelection> {
                         setState(() {
                           _selectedBarangayId = barangayId;
                         });
+                        if (kDemoMode) DemoNav.barangaySelected = true;
                       },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
@@ -503,6 +528,7 @@ class _BarangaySelectionState extends State<BarangaySelection> {
                         width: double.infinity,
                         height: 52,
                         child: ElevatedButton(
+                          key: kDemoMode ? DemoKeys.barangayContinue : null,
                           onPressed:
                               (_isRegistering ||
                                   _isLoading ||

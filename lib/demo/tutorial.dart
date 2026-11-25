@@ -29,12 +29,16 @@ import 'package:citisense/session_manager.dart';
 // shared_preferences, so a refresh resumes at the right place.
 // ============================================================
 
-const int kTutorialSteps = 16;
+const int kTutorialSteps = 18;
 
 /// GlobalKeys on the real widgets the tutorial highlights.
 class DemoKeys {
   DemoKeys._();
 
+  static final demoAccounts = GlobalKey(debugLabel: 'demoAccounts');
+  static final loginButton = GlobalKey(debugLabel: 'loginButton');
+  static final barangayTile = GlobalKey(debugLabel: 'barangayTile');
+  static final barangayContinue = GlobalKey(debugLabel: 'barangayContinue');
   static final homeHeader = GlobalKey(debugLabel: 'homeHeader');
   static final reportButton = GlobalKey(debugLabel: 'reportButton');
   static final navBar = GlobalKey(debugLabel: 'navBar');
@@ -71,6 +75,8 @@ class DemoNav {
   static VoidCallback? submitRating;
 
   /// Set by the report form for the current form only.
+  static bool loginFilled = false;
+  static bool barangaySelected = false;
   static bool sampleChosen = false;
   static bool locationConfirmed = false;
 
@@ -146,7 +152,7 @@ class TutorialController extends ChangeNotifier {
 
   static final TutorialController instance = TutorialController._();
 
-  static const _stepKey = 'demo_tutorial_step_v2'; // v2: 16 steps
+  static const _stepKey = 'demo_tutorial_step_v3'; // v3: 18 steps
   static const _doneKey = 'demo_tutorial_done';
   static const _skippedKey = 'demo_tutorial_skipped';
 
@@ -179,6 +185,13 @@ class TutorialController extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Login screen opened: the tutorial starts (or resumes) here.
+  void onLoginShown() {
+    if (done || skipped || active) return;
+    active = true;
+    notifyListeners();
+  }
+
   /// Home opened (after login or a refresh): start or resume once.
   void onHomeShown() {
     if (done || skipped || active) return;
@@ -187,21 +200,22 @@ class TutorialController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Lowest step allowed by the saved report state, so Back and a
-  /// refresh never go "before" something that already happened.
+  /// Lowest step allowed by the saved state, so Back and a refresh
+  /// never go "before" something that already happened.
   int get minStep {
     final store = DemoStore.instance;
     switch (store.stage) {
       case DemoStage.rated:
-        return 15;
+        return 17;
       case DemoStage.resolved:
-        return 14;
+        return 16;
       case DemoStage.progress:
-        return store.adminReplied ? 13 : 10;
+        return store.adminReplied ? 15 : 12;
       case DemoStage.pending:
-        return 8;
+        return 10;
       case DemoStage.none:
-        return 1;
+        // Barangay already chosen: the login/onboarding steps are over.
+        return store.onboarded && AuthSession.isLoggedIn ? 3 : 1;
     }
   }
 
@@ -218,20 +232,22 @@ class TutorialController extends ChangeNotifier {
     if (!canGoBack) return;
     final target = step - 1;
     // Put the screen back where that step expects it.
-    if (target <= 3) {
+    if (target == 2 && DemoKeys.barangayTile.currentContext != null) {
+      appNavigatorKey.currentState?.maybePop(); // back to Log In
+    } else if (target >= 4 && target <= 5) {
       DemoNav.popToHome();
       DemoNav.switchTab?.call(0);
-    } else if (target == 9 || target == 10 || target == 11) {
+    } else if (target == 11 || target == 12 || target == 13) {
       DemoNav.popToHome();
-      DemoNav.switchTab?.call(target == 9 ? 1 : 2);
-    } else if (target == 12 && DemoNav.isShown(DemoKeys.chatComposer)) {
+      DemoNav.switchTab?.call(target == 11 ? 1 : 2);
+    } else if (target == 14 && DemoNav.isShown(DemoKeys.chatComposer)) {
       appNavigatorKey.currentState?.maybePop();
     }
     goTo(target);
   }
 
   /// Steps that only explain something (no action required).
-  static bool isInfoStep(int s) => s == 1 || s == 2;
+  static bool isInfoStep(int s) => s == 1 || s == 4;
 
   /// True once the tester has really done what the current step asks.
   /// "Next" stays disabled until then, so it cannot be used to skip.
@@ -244,40 +260,45 @@ class TutorialController extends ChangeNotifier {
     final tab = DemoNav.tab.value;
     switch (s) {
       case 1:
-      case 2:
+      case 4:
         return true;
-      case 3: // tapped "Report an Issue"
+      case 2: // logged in (barangay screen opened, or already onboarded)
+        return DemoKeys.barangayTile.currentContext != null ||
+            (AuthSession.isLoggedIn && store.onboarded);
+      case 3: // chose Duljo-Fatima and pressed Continue
+        return store.onboarded && AuthSession.isLoggedIn;
+      case 5: // tapped "Report an Issue"
         return formOpen;
-      case 4: // picked a sample photo
+      case 6: // picked a sample photo
         return formOpen &&
             DemoNav.sampleChosen &&
             !DemoNav.isShown(DemoKeys.sampleSheet);
-      case 5: // AI suggestion is ready and a category is selected
+      case 7: // AI suggestion is ready and a category is selected
         return formOpen && DemoNav.categoryReady;
-      case 6: // confirmed the pin on the map
+      case 8: // pinned a spot on the map and confirmed it
         return formOpen &&
             DemoNav.locationConfirmed &&
             !DemoNav.isShown(DemoKeys.mapConfirm);
-      case 7: // tapped into the description box (typing is optional)
+      case 9: // tapped into the description box (typing is optional)
         return formOpen &&
             (DemoNav.descriptionTouched || DemoNav.descriptionText.isNotEmpty);
-      case 8: // submitted the report
+      case 10: // submitted the report
         return store.stage != DemoStage.none && !formOpen;
-      case 9: // opened My Reports
+      case 11: // opened My Reports
         return onHome && tab == 1 && store.demoReportID != null;
-      case 10: // opened Alerts (report became In progress)
+      case 12: // opened Alerts (report became In progress)
         return onHome &&
             tab == 2 &&
             store.stage.index >= DemoStage.progress.index;
-      case 11: // tapped the notification: Report Details is open
+      case 13: // tapped the notification: Report Details is open
         return DemoNav.isShown(DemoKeys.detailsStatus);
-      case 12: // tapped "Ask your barangay about this report"
+      case 14: // tapped "Ask your barangay about this report"
         return DemoNav.isShown(DemoKeys.chatComposer);
-      case 13: // sent the message and the barangay replied
+      case 15: // sent the message and the barangay replied
         return store.adminReplied;
-      case 14: // went back to My Reports: report is Resolved
+      case 16: // went back to My Reports: report is Resolved
         return store.stage.index >= DemoStage.resolved.index;
-      case 15: // submitted the rating
+      case 17: // submitted the rating
         return store.stage == DemoStage.rated;
     }
     return false;
@@ -286,7 +307,7 @@ class TutorialController extends ChangeNotifier {
   /// "Next": only moves on once the step's action is done.
   void next() {
     if (!stepDone) return;
-    if (step >= 15) return finish();
+    if (step >= kTutorialSteps - 1) return finish();
     goTo(step + 1);
   }
 
@@ -311,14 +332,15 @@ class TutorialController extends ChangeNotifier {
     skipped = false;
     showThanks = false;
     active = true;
-    step = minStep;
+    // Restart after onboarding: begin at the Home overview.
+    step = minStep == 3 ? 4 : minStep;
     DemoNav.popToHome();
-    DemoNav.switchTab?.call(step >= 14 ? 1 : 0);
+    DemoNav.switchTab?.call(step >= 16 ? 1 : 0);
     _save();
     notifyListeners();
   }
 
-  /// "Finish"/"Done" after rating: show the thank-you screen (step 15).
+  /// "Finish"/"Done" after rating: show the thank-you screen.
   void finish() {
     step = kTutorialSteps;
     showThanks = true;
@@ -336,6 +358,7 @@ class TutorialController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Settings > Reset demo: starting data, logged out, tutorial step 1.
   Future<void> resetAll() async {
     await DemoStore.instance.reset();
     done = false;
@@ -343,10 +366,9 @@ class TutorialController extends ChangeNotifier {
     showThanks = false;
     step = 1;
     active = true;
-    DemoNav.popToHome();
-    DemoNav.switchTab?.call(0);
     _save();
     notifyListeners();
+    await SessionManager.logout();
   }
 
   /// Keeps the step consistent with what is on screen (never moves
@@ -360,23 +382,30 @@ class TutorialController extends ChangeNotifier {
 
     final formOpen = DemoKeys.photoBox.currentContext != null;
     switch (step) {
-      case 4:
-      case 5:
+      case 3:
+        // Barangay screen closed (Back, or refresh) before choosing.
+        if (!store.onboarded &&
+            DemoKeys.barangayTile.currentContext == null &&
+            DemoKeys.loginButton.currentContext != null) {
+          goTo(2);
+        }
       case 6:
       case 7:
       case 8:
+      case 9:
+      case 10:
         // The report form was closed before submitting: start it again.
-        if (!formOpen && store.stage == DemoStage.none) goTo(3);
-      case 12:
+        if (!formOpen && store.stage == DemoStage.none) goTo(5);
+      case 14:
         if (DemoKeys.detailsStatus.currentContext == null &&
             DemoKeys.chatComposer.currentContext == null &&
             DemoNav.homeIsCurrent) {
-          goTo(11);
+          goTo(13);
         }
-      case 13:
+      case 15:
         if (!store.adminReplied &&
             DemoKeys.chatComposer.currentContext == null) {
-          goTo(DemoKeys.detailsStatus.currentContext != null ? 12 : 11);
+          goTo(DemoKeys.detailsStatus.currentContext != null ? 14 : 13);
         }
     }
   }
@@ -397,7 +426,11 @@ class _StepView {
     this.nextLabel = 'Next',
     this.doneTitle,
     this.doneText,
+    this.floatTop = false,
   });
+
+  /// Show the card at the top without dimming (screen stays usable).
+  final bool floatTop;
 
   final String title;
   final String text;
@@ -429,10 +462,35 @@ _StepView _viewFor(int step) {
         text:
             'This is a prototype for testing. Notifications, AI photo '
             'detection and barangay replies are simulated, and nothing is '
-            'sent to a real barangay. Let’s walk through one report.',
+            'sent to a real barangay. Let’s log in and walk through one report.',
         nextLabel: 'Start',
       );
     case 2:
+      final filled = DemoNav.loginFilled;
+      return _StepView(
+        title: 'Log in',
+        text: filled
+            ? 'Now tap “Log In”.'
+            : 'Tap one of the demo accounts (for example tester1 / demo1) '
+                  'to fill in the username and password.',
+        target: filled ? DemoKeys.loginButton : DemoKeys.demoAccounts,
+        scroll: true,
+        doneTitle: 'Logged in!',
+        doneText: 'First, choose your barangay. Tap Next.',
+      );
+    case 3:
+      final picked = DemoNav.barangaySelected;
+      return _StepView(
+        title: 'Choose your barangay',
+        text: picked
+            ? 'Duljo-Fatima is selected. Tap “Continue”.'
+            : 'Tap “Duljo-Fatima”, the barangay that will receive your reports.',
+        target: picked ? DemoKeys.barangayContinue : DemoKeys.barangayTile,
+        scroll: true,
+        doneTitle: 'Welcome to Duljo-Fatima!',
+        doneText: 'Your barangay is set. Tap Next for a quick look at Home.',
+      );
+    case 4:
       return _StepView(
         title: 'Your Home screen',
         text:
@@ -441,7 +499,7 @@ _StepView _viewFor(int step) {
         target: DemoKeys.homeHeader,
         onTab: 0,
       );
-    case 3:
+    case 5:
       return _StepView(
         title: 'Report an issue',
         text: 'Tap “Report an Issue” to start a new report.',
@@ -452,7 +510,7 @@ _StepView _viewFor(int step) {
         doneText:
             'This is where you describe the problem. Tap Next to add a photo.',
       );
-    case 4:
+    case 6:
       final sheet = DemoNav.isShown(DemoKeys.sampleSheet);
       return _StepView(
         title: sheet ? 'Choose a sample photo' : 'Add a photo',
@@ -464,7 +522,7 @@ _StepView _viewFor(int step) {
         doneText:
             'The simulated AI is checking the photo. Tap Next to see its suggestion.',
       );
-    case 5:
+    case 7:
       return _StepView(
         title: 'Check the AI suggestion',
         text: 'Wait a moment while the simulated AI checks your photo…',
@@ -476,19 +534,22 @@ _StepView _viewFor(int step) {
             'The AI suggests “${DemoNav.selectedCategory ?? '-'}”. You can '
             'change it in the list. Tap Confirm when it’s right.',
       );
-    case 6:
+    case 8:
       final map = DemoNav.isShown(DemoKeys.mapConfirm);
       return _StepView(
         title: map ? 'Confirm the location' : 'Set the location',
         text: map
-            ? 'The pin is already in place. Just press Confirm.'
-            : 'Tap “Set Location on Map” to see where the issue is pinned.',
-        target: map ? DemoKeys.mapConfirm : DemoKeys.locationButton,
+            ? 'Zoom in and tap the exact spot of the issue to drop the pin, '
+                  'then press “Confirm Location”.'
+            : 'Tap “Set Location on Map” to open the map of Duljo-Fatima.',
+        // Map open: no dimming, so the whole map can be tapped/zoomed.
+        target: map ? null : DemoKeys.locationButton,
+        floatTop: map,
         scroll: !map,
         doneTitle: 'Location confirmed',
         doneText: 'The issue is pinned on the map. Tap Next.',
       );
-    case 7:
+    case 9:
       final typed = DemoNav.descriptionText.trim();
       return _StepView(
         title: 'Describe the issue',
@@ -505,7 +566,7 @@ _StepView _viewFor(int step) {
             ? 'Type a short description, or leave it empty. Tap Next when you’re ready.'
             : 'Nice! You can keep editing it. Tap Next when you’re done.',
       );
-    case 8:
+    case 10:
       return _StepView(
         title: 'Submit the report',
         text: 'Everything is filled in. Tap “Submit Report”.',
@@ -514,7 +575,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Report sent!',
         doneText: 'Your report $id was submitted. Tap Next to find it.',
       );
-    case 9:
+    case 11:
       return _StepView(
         title: 'Open My Reports',
         text:
@@ -525,7 +586,7 @@ _StepView _viewFor(int step) {
             'Here is $id. Its status is Pending: the barangay has not '
             'acted on it yet.',
       );
-    case 10:
+    case 12:
       return _StepView(
         title: 'Check your alerts',
         text: 'Tap “Alerts” at the bottom to see what happened to your report.',
@@ -535,7 +596,7 @@ _StepView _viewFor(int step) {
             'The barangay started working on it: $id changed from Pending '
             'to In progress.',
       );
-    case 11:
+    case 13:
       final onAlerts = onHome && tab == 2;
       return _StepView(
         title: 'Open the notification',
@@ -549,7 +610,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Report Details',
         doneText: 'The status now shows In progress, here and in My Reports.',
       );
-    case 12:
+    case 14:
       return _StepView(
         title: 'Ask for an update',
         text: 'Tap “Ask your barangay about this report” below.',
@@ -558,7 +619,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Chat with your barangay',
         doneText: 'This chat is about $id. Tap Next to send a follow-up.',
       );
-    case 13:
+    case 15:
       return _StepView(
         title: store.hasAskedFollowUp
             ? 'Waiting for the barangay'
@@ -570,7 +631,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'The barangay replied',
         doneText: '“Currently working for it.” Tap Next.',
       );
-    case 14:
+    case 16:
       return _StepView(
         title: 'Go back to My Reports',
         text: onHome
@@ -581,7 +642,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Your report is resolved',
         doneText: '$id now shows Resolved, and you got a new alert.',
       );
-    case 15:
+    case 17:
       final rating = DemoNav.isShown(DemoKeys.rateSection);
       final onList = onHome && tab == 1;
       return _StepView(
@@ -851,6 +912,16 @@ class _DemoLayerState extends State<DemoLayer>
     }
 
     if (!info && done) return [floating(card(finished: true))];
+    if (view.floatTop) {
+      return [
+        Positioned(
+          left: 12,
+          right: 12,
+          top: media.padding.top + 8,
+          child: card(finished: false),
+        ),
+      ];
+    }
     if (view.hasTarget && hole == null) {
       return [floating(card(finished: false))];
     }
@@ -1170,7 +1241,7 @@ class _TooltipCard extends StatelessWidget {
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Do the highlighted action to continue.',
+                        'Complete this step to continue.',
                         style: TextStyle(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w700,

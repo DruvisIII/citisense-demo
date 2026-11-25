@@ -1,8 +1,13 @@
 # Deploying the Barangay Reports web demo to Railway
 
 The demo is a static Flutter web build (`--dart-define=DEMO=true`). It needs
-no backend, database, camera, maps API or AI model: all data is simulated
-in the browser and saved per browser (shared_preferences / localStorage).
+no backend, database, camera or AI model: all data is simulated in the
+browser and saved per browser (shared_preferences / localStorage).
+
+The location map uses free OpenStreetMap tiles (no API key). They load from
+tile.openstreetmap.org, so testers need internet access, which they already
+have to open the demo. To change the map area, edit kDemoMapCenter and
+kDemoArea in lib/demo/demo_config.dart.
 
 The Docker image only serves files with nginx. **Flutter is not installed in
 the image: you build locally and commit the result in `deploy/web/`.**
@@ -94,27 +99,32 @@ Devices and browsers:
 - [ ] Laptop: Chrome, Edge and Firefox (app shows as a centred phone-width column)
 - [ ] A **private / incognito** window (starts fresh: tutorial from step 1)
 
-Walk through the 16 tutorial steps once (Next stays disabled until each
+Walk through the 18 tutorial steps once (Next stays disabled until each
 highlighted action is done):
 
-- [ ] 1-2 Welcome, Home overview
-- [ ] 3 Tap "Report an Issue" → Next unlocks (Next is disabled before that)
-- [ ] 4 Choose a sample photo
-- [ ] 5 AI suggestion appears after ~1.5 s; the category can be changed; Confirm
-- [ ] 6 Set Location on Map → static map with pin → Confirm
-- [ ] 7 Tap the Description box (typing is optional) → Next unlocks
-- [ ] 8 Submit Report → snackbar "Report REP0xx submitted"
-- [ ] 9 My Reports shows the new report with a **Pending** chip
-- [ ] 10 Alerts: banner + unread dot + badge "Your report REP0xx is now In progress"
-- [ ] 11 Tap it → Report Details shows **In progress** (and your description)
-- [ ] 12 Auto-scroll to "Ask your barangay about this report", tap it
-- [ ] 13 Message is pre-filled, press Send → "Barangay is typing…" → after ~2 s
+- [ ] 1 Welcome card on the Log In screen
+- [ ] 2 Tap a demo account (e.g. tester1 / demo1), then Log In
+- [ ] 3 Choose your barangay: only **Duljo-Fatima** is listed → Continue → Home
+- [ ] 4 Home overview
+- [ ] 5 Tap "Report an Issue"
+- [ ] 6 Choose a sample photo
+- [ ] 7 AI suggestion appears after ~1.5 s; the category can be changed; Confirm
+- [ ] 8 Set Location on Map → a real map of Duljo-Fatima opens; zoom in, tap the
+      exact spot (taps outside Duljo-Fatima are refused) → Confirm Location
+- [ ] 9 Tap the Description box (typing is optional)
+- [ ] 10 Submit Report → snackbar "Report REP0xx submitted"
+- [ ] 11 My Reports shows the new report with a **Pending** chip
+- [ ] 12 Alerts: banner + unread dot + badge "Your report REP0xx is now In progress"
+- [ ] 13 Tap it → Report Details shows **In progress**, your description and
+      the map with your pin
+- [ ] 14 Tap "Ask your barangay about this report"
+- [ ] 15 Message is pre-filled, press Send → "Barangay is typing…" → after ~2 s
       the reply **"Currently working for it."**
-- [ ] 14 Press Back (in-app arrow or browser Back) → My Reports shows **Resolved**
+- [ ] 16 Press Back (in-app arrow or browser Back) → My Reports shows **Resolved**
       and a "has been resolved" notification
-- [ ] 15 Open the resolved report → Rate the Resolution (5 stars + comment
+- [ ] 17 Open the resolved report → Rate the Resolution (5 stars + comment
       pre-filled) → Submit Feedback → "Thanks for your feedback!" → Finish
-- [ ] 16 "Thank you for testing!" with a 3-second countdown, then the Google
+- [ ] 18 "Thank you for testing!" with a 3-second countdown, then the Google
       Form opens **in the same tab** (check on Android Chrome AND iPhone Safari)
 - [ ] On the Google Form, press the browser **Back** button: the app returns to
       Home, the tutorial does **not** restart and there is no second redirect

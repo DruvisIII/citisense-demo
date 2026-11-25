@@ -10,6 +10,8 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'package:citisense/auth_session.dart';
 import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/tutorial.dart';
+import 'package:citisense/barangaySelection.dart';
 import 'package:citisense/createAccount.dart';
 import 'package:citisense/friendly_errors.dart';
 import 'package:citisense/landing.dart';
@@ -53,6 +55,23 @@ class _LoginPageState extends State<LoginPage> {
 
   bool _obscurePassword = true;
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kDemoMode) {
+      // The demo tutorial starts on this screen.
+      void track() => DemoNav.loginFilled =
+          _emailController.text.trim().isNotEmpty &&
+          _passwordController.text.isNotEmpty;
+      _emailController.addListener(track);
+      _passwordController.addListener(track);
+      track();
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => TutorialController.instance.onLoginShown(),
+      );
+    }
+  }
 
   // ------------------------------------------------------------
   // DISPOSE
@@ -273,6 +292,25 @@ class _LoginPageState extends State<LoginPage> {
       // --------------------------------------------------------
       // IF USER HAS NO BARANGAY
       // --------------------------------------------------------
+
+      // Demo onboarding: first login -> choose the barangay, then Home.
+      if (!hasBarangay && kDemoMode) {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => BarangaySelection(
+              firstName: sessionUser.firstName,
+              lastName: sessionUser.lastName,
+              email: sessionUser.email,
+              contactNumber: sessionUser.contactNo,
+              password: '',
+              registrationToken: '',
+              demoUser: sessionUser,
+              demoAuthToken: authToken,
+            ),
+          ),
+        );
+        return;
+      }
 
       if (!hasBarangay) {
         AuthSession.start(null);
@@ -510,6 +548,7 @@ class _LoginPageState extends State<LoginPage> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton(
+                  key: kDemoMode ? DemoKeys.loginButton : null,
                   onPressed: _isLoading ? null : _login,
                   child: _isLoading
                       ? const SizedBox(
@@ -582,6 +621,7 @@ class _DemoAccountsHint extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: DemoKeys.demoAccounts,
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(

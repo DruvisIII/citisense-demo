@@ -108,6 +108,8 @@ class DemoStore extends ChangeNotifier {
           image: kDemoSamples[3].asset,
           description: 'Large pothole near the basketball court.',
           date: now.subtract(const Duration(days: 12)),
+          latitude: 10.2928,
+          longitude: 123.8826,
         ),
         _report(
           id: 'REP031',
@@ -116,6 +118,8 @@ class DemoStore extends ChangeNotifier {
           image: kDemoSamples[2].asset,
           description: 'Uncollected garbage beside the chapel.',
           date: now.subtract(const Duration(days: 4)),
+          latitude: 10.2943,
+          longitude: 123.8851,
         ),
       ],
       'notifications': [
@@ -211,6 +215,8 @@ class DemoStore extends ChangeNotifier {
     required String description,
     required DateTime date,
     String address = kDemoAddress,
+    double latitude = kDemoLatitude,
+    double longitude = kDemoLongitude,
   }) {
     return {
       'reportID': id,
@@ -226,9 +232,8 @@ class DemoStore extends ChangeNotifier {
       'timeline': null,
       'categoryName': _categoryNames[categoryID] ?? 'Others',
       'statusName': _statusNames[statusID] ?? '',
-      // No coordinates: Report Details then skips the live map (no map API).
-      'latitude': null,
-      'longitude': null,
+      'latitude': latitude,
+      'longitude': longitude,
       'address': address,
       'imagePath': image,
     };
@@ -307,6 +312,14 @@ class DemoStore extends ChangeNotifier {
   );
 
   bool get adminReplied => _state['adminReplied'] == true;
+
+  /// Barangay chosen after the first login (onboarding).
+  bool get onboarded => _state['onboarded'] == true;
+
+  Future<void> setOnboarded() async {
+    _state['onboarded'] = true;
+    await _commit();
+  }
 
   bool get hasAskedFollowUp => _list(
     'messages',
@@ -392,6 +405,8 @@ class DemoStore extends ChangeNotifier {
     required String categoryID,
     required String description,
     required String address,
+    double? latitude,
+    double? longitude,
   }) async {
     final no = _state['nextReportNo'] as int? ?? 32;
     final id = 'REP${no.toString().padLeft(3, '0')}';
@@ -407,6 +422,8 @@ class DemoStore extends ChangeNotifier {
         description: description,
         date: DateTime.now(),
         address: address.isEmpty ? kDemoAddress : address,
+        latitude: latitude ?? kDemoLatitude,
+        longitude: longitude ?? kDemoLongitude,
       ),
     );
     _state['reports'] = list;

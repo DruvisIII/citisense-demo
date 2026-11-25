@@ -113,13 +113,32 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
       DemoNav.descriptionTouched = false;
       DemoNav.descriptionText = '';
       DemoNav.chooseSample = () => _useDemoSample(kDemoSamples.first);
-      DemoNav.confirmLocation = _confirmDemoLocation;
       DemoNav.submitReport = _submitReport;
     }
   }
 
+  /// Demo: live OpenStreetMap map of Duljo-Fatima. No GPS, no
+  /// geocoding API: the exact pin is saved with a fixed area name.
+  Future<void> _openDemoMapPicker() async {
+    final LatLng? result = await showDialog<LatLng>(
+      context: context,
+      builder: (_) => MapLocationPicker(
+        initialLocation: _selectedLocation ?? kDemoMapCenter,
+        requireMapTap: _selectedLocation == null,
+        hasLiveLocation: false,
+      ),
+    );
+    if (result == null || !mounted) return;
+    DemoNav.locationConfirmed = true;
+    setState(() {
+      _selectedLocation = result;
+      _selectedAddress = kDemoAddress;
+      _locationNote = 'Pinned on the map.';
+    });
+  }
+
   // ============================================================
-  // DEMO: sample photos, fixed AI result, static map
+  // DEMO: sample photos, fixed AI result
   // ============================================================
 
   Future<void> _pickDemoSample() async {
@@ -212,60 +231,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
     await _analyzeImage(bytes);
   }
 
-  Future<void> _openDemoMap() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => Dialog(
-        insetPadding: const EdgeInsets.all(18),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                'Confirm location',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: AspectRatio(
-                  aspectRatio: 16 / 9,
-                  child: Image.asset(kDemoStaticMapAsset, fit: BoxFit.cover),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                kDemoAddress,
-                style: TextStyle(color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 14),
-              ElevatedButton(
-                key: DemoKeys.mapConfirm,
-                onPressed: () => Navigator.pop(dialogContext, true),
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                child: const Text('Confirm'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-    if (ok == true) _confirmDemoLocation();
-  }
 
-  void _confirmDemoLocation() {
-    if (!mounted) return;
-    DemoNav.locationConfirmed = true;
-    setState(() {
-      _selectedLocation = const LatLng(kDemoLatitude, kDemoLongitude);
-      _selectedAddress = kDemoAddress;
-      _locationNote = 'Pinned on the demo map.';
-    });
-  }
 
   final List<String> _categories = [
     'Waste Accumulation',
@@ -877,7 +843,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
   // ============================================================
 
   Future<void> _openMapPicker() async {
-    if (kDemoMode) return _openDemoMap();
+    if (kDemoMode) return _openDemoMapPicker();
     // If the image already supplied a suggested location (camera GPS or
     // gallery EXIF), open the map at that location. Otherwise use current
     // GPS only as the map's starting point; the user must tap to place a pin.
@@ -1335,16 +1301,6 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
 
   Widget _buildLocationPreview() {
     final LatLng point = _selectedLocation!;
-    if (kDemoMode) {
-      // Static picture instead of live map tiles (no map API in the demo).
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(AppRadius.sm),
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Image.asset(kDemoStaticMapAsset, fit: BoxFit.cover),
-        ),
-      );
-    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -2180,7 +2136,8 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
   void initState() {
     super.initState();
 
-    _currentLocation = widget.initialLocation ?? _defaultLocation;
+    _currentLocation =
+        widget.initialLocation ?? (kDemoMode ? kDemoMapCenter : _defaultLocation);
 
     // When manual pinning is required, do not preselect the map center.
     // This prevents the phone's current position from being submitted
@@ -2197,7 +2154,7 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
   // ==========================================================
 
   void _recenterMap() {
-    _mapController.move(_currentLocation, 16);
+    _mapController.move(kDemoMode ? kDemoMapCenter : _currentLocation, 16);
   }
 
   // ==========================================================
@@ -2251,7 +2208,10 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
               padding: const EdgeInsets.symmetric(horizontal: 16),
 
               child: Text(
-                widget.hasLiveLocation
+                kDemoMode
+                    ? 'This map shows Duljo-Fatima. Zoom in and tap the exact '
+                          'spot where the issue was found to drop the pin.'
+                    : widget.hasLiveLocation
                     ? 'The map starts at your current location. '
                           'Tap the map to pin the exact place where '
                           'the issue was found.'
@@ -2282,7 +2242,26 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
 
                       initialZoom: 16,
 
+                      // Demo: stay inside Duljo-Fatima.
+                      minZoom: kDemoMode ? 15 : null,
+                      maxZoom: kDemoMode ? 19 : null,
+                      cameraConstraint: kDemoMode
+                          ? CameraConstraint.containCenter(bounds: kDemoArea)
+                          : const CameraConstraint.unconstrained(),
+
                       onTap: (tapPosition, point) {
+                        if (kDemoMode && !kDemoArea.contains(point)) {
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Please pin a spot inside Duljo-Fatima.',
+                                ),
+                              ),
+                            );
+                          return;
+                        }
                         setState(() {
                           _selectedLocation = point;
                         });
@@ -2399,6 +2378,7 @@ class _MapLocationPickerState extends State<MapLocationPicker> {
                     width: double.infinity,
                     height: 52,
                     child: ElevatedButton(
+                      key: kDemoMode ? DemoKeys.mapConfirm : null,
                       onPressed: _selectedLocation == null
                           ? null
                           : () {
