@@ -94,25 +94,27 @@ Devices and browsers:
 - [ ] Laptop: Chrome, Edge and Firefox (app shows as a centred phone-width column)
 - [ ] A **private / incognito** window (starts fresh: tutorial from step 1)
 
-Walk through the 15 tutorial steps once:
+Walk through the 16 tutorial steps once (Next stays disabled until each
+highlighted action is done):
 
 - [ ] 1-2 Welcome, Home overview
-- [ ] 3 Tap "Report an Issue" (tutorial moves on by itself)
+- [ ] 3 Tap "Report an Issue" → Next unlocks (Next is disabled before that)
 - [ ] 4 Choose a sample photo
 - [ ] 5 AI suggestion appears after ~1.5 s; the category can be changed; Confirm
 - [ ] 6 Set Location on Map → static map with pin → Confirm
-- [ ] 7 Submit Report → snackbar "Report REP0xx submitted"
-- [ ] 8 My Reports shows the new report with a **Pending** chip
-- [ ] 9 Alerts: banner + unread dot + badge "Your report REP0xx is now In progress"
-- [ ] 10 Tap it → Report Details shows **In progress**
-- [ ] 11 Auto-scroll to "Ask your barangay about this report", tap it
-- [ ] 12 Message is pre-filled, press Send → "Barangay is typing…" → after ~2 s
+- [ ] 7 Tap the Description box (typing is optional) → Next unlocks
+- [ ] 8 Submit Report → snackbar "Report REP0xx submitted"
+- [ ] 9 My Reports shows the new report with a **Pending** chip
+- [ ] 10 Alerts: banner + unread dot + badge "Your report REP0xx is now In progress"
+- [ ] 11 Tap it → Report Details shows **In progress** (and your description)
+- [ ] 12 Auto-scroll to "Ask your barangay about this report", tap it
+- [ ] 13 Message is pre-filled, press Send → "Barangay is typing…" → after ~2 s
       the reply **"Currently working for it."**
-- [ ] 13 Press Back (in-app arrow or browser Back) → My Reports shows **Resolved**
+- [ ] 14 Press Back (in-app arrow or browser Back) → My Reports shows **Resolved**
       and a "has been resolved" notification
-- [ ] 14 Open the resolved report → Rate the Resolution (5 stars + comment
-      pre-filled) → Submit Feedback → "Thanks for your feedback!" → Done
-- [ ] 15 "Thank you for testing!" with a 3-second countdown, then the Google
+- [ ] 15 Open the resolved report → Rate the Resolution (5 stars + comment
+      pre-filled) → Submit Feedback → "Thanks for your feedback!" → Finish
+- [ ] 16 "Thank you for testing!" with a 3-second countdown, then the Google
       Form opens **in the same tab** (check on Android Chrome AND iPhone Safari)
 - [ ] On the Google Form, press the browser **Back** button: the app returns to
       Home, the tutorial does **not** restart and there is no second redirect

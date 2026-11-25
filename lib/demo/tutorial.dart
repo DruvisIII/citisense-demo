@@ -29,7 +29,7 @@ import 'package:citisense/session_manager.dart';
 // shared_preferences, so a refresh resumes at the right place.
 // ============================================================
 
-const int kTutorialSteps = 15;
+const int kTutorialSteps = 16;
 
 /// GlobalKeys on the real widgets the tutorial highlights.
 class DemoKeys {
@@ -44,6 +44,7 @@ class DemoKeys {
   static final locationButton = GlobalKey(debugLabel: 'locationButton');
   static final mapConfirm = GlobalKey(debugLabel: 'mapConfirm');
   static final submitButton = GlobalKey(debugLabel: 'submitButton');
+  static final descriptionField = GlobalKey(debugLabel: 'descriptionField');
   static final demoReportCard = GlobalKey(debugLabel: 'demoReportCard');
   static final demoNotifCard = GlobalKey(debugLabel: 'demoNotifCard');
   static final detailsStatus = GlobalKey(debugLabel: 'detailsStatus');
@@ -75,6 +76,10 @@ class DemoNav {
 
   /// Report form: AI finished and a category is selected.
   static bool categoryReady = false;
+
+  /// Report form: description box was tapped / its current text.
+  static bool descriptionTouched = false;
+  static String descriptionText = '';
   static String? selectedCategory;
 
   /// [key] is mounted, on the top-most route and (for Home tabs) on
@@ -141,7 +146,7 @@ class TutorialController extends ChangeNotifier {
 
   static final TutorialController instance = TutorialController._();
 
-  static const _stepKey = 'demo_tutorial_step';
+  static const _stepKey = 'demo_tutorial_step_v2'; // v2: 16 steps
   static const _doneKey = 'demo_tutorial_done';
   static const _skippedKey = 'demo_tutorial_skipped';
 
@@ -188,13 +193,13 @@ class TutorialController extends ChangeNotifier {
     final store = DemoStore.instance;
     switch (store.stage) {
       case DemoStage.rated:
-        return 14;
+        return 15;
       case DemoStage.resolved:
-        return 13;
+        return 14;
       case DemoStage.progress:
-        return store.adminReplied ? 12 : 9;
+        return store.adminReplied ? 13 : 10;
       case DemoStage.pending:
-        return 7;
+        return 8;
       case DemoStage.none:
         return 1;
     }
@@ -206,7 +211,8 @@ class TutorialController extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get canGoBack => step > 1 && step - 1 >= minStep && step < 15;
+  bool get canGoBack =>
+      step > 1 && step - 1 >= minStep && step < kTutorialSteps;
 
   void back() {
     if (!canGoBack) return;
@@ -215,10 +221,10 @@ class TutorialController extends ChangeNotifier {
     if (target <= 3) {
       DemoNav.popToHome();
       DemoNav.switchTab?.call(0);
-    } else if (target == 8 || target == 9 || target == 10) {
+    } else if (target == 9 || target == 10 || target == 11) {
       DemoNav.popToHome();
-      DemoNav.switchTab?.call(target == 8 ? 1 : 2);
-    } else if (target == 11 && DemoNav.isShown(DemoKeys.chatComposer)) {
+      DemoNav.switchTab?.call(target == 9 ? 1 : 2);
+    } else if (target == 12 && DemoNav.isShown(DemoKeys.chatComposer)) {
       appNavigatorKey.currentState?.maybePop();
     }
     goTo(target);
@@ -252,23 +258,26 @@ class TutorialController extends ChangeNotifier {
         return formOpen &&
             DemoNav.locationConfirmed &&
             !DemoNav.isShown(DemoKeys.mapConfirm);
-      case 7: // submitted the report
+      case 7: // tapped into the description box (typing is optional)
+        return formOpen &&
+            (DemoNav.descriptionTouched || DemoNav.descriptionText.isNotEmpty);
+      case 8: // submitted the report
         return store.stage != DemoStage.none && !formOpen;
-      case 8: // opened My Reports
+      case 9: // opened My Reports
         return onHome && tab == 1 && store.demoReportID != null;
-      case 9: // opened Alerts (report became In progress)
+      case 10: // opened Alerts (report became In progress)
         return onHome &&
             tab == 2 &&
             store.stage.index >= DemoStage.progress.index;
-      case 10: // tapped the notification: Report Details is open
+      case 11: // tapped the notification: Report Details is open
         return DemoNav.isShown(DemoKeys.detailsStatus);
-      case 11: // tapped "Ask your barangay about this report"
+      case 12: // tapped "Ask your barangay about this report"
         return DemoNav.isShown(DemoKeys.chatComposer);
-      case 12: // sent the message and the barangay replied
+      case 13: // sent the message and the barangay replied
         return store.adminReplied;
-      case 13: // went back to My Reports: report is Resolved
+      case 14: // went back to My Reports: report is Resolved
         return store.stage.index >= DemoStage.resolved.index;
-      case 14: // submitted the rating
+      case 15: // submitted the rating
         return store.stage == DemoStage.rated;
     }
     return false;
@@ -277,7 +286,7 @@ class TutorialController extends ChangeNotifier {
   /// "Next": only moves on once the step's action is done.
   void next() {
     if (!stepDone) return;
-    if (step >= 14) return finish();
+    if (step >= 15) return finish();
     goTo(step + 1);
   }
 
@@ -304,7 +313,7 @@ class TutorialController extends ChangeNotifier {
     active = true;
     step = minStep;
     DemoNav.popToHome();
-    DemoNav.switchTab?.call(step >= 13 ? 1 : 0);
+    DemoNav.switchTab?.call(step >= 14 ? 1 : 0);
     _save();
     notifyListeners();
   }
@@ -355,18 +364,19 @@ class TutorialController extends ChangeNotifier {
       case 5:
       case 6:
       case 7:
+      case 8:
         // The report form was closed before submitting: start it again.
         if (!formOpen && store.stage == DemoStage.none) goTo(3);
-      case 11:
+      case 12:
         if (DemoKeys.detailsStatus.currentContext == null &&
             DemoKeys.chatComposer.currentContext == null &&
             DemoNav.homeIsCurrent) {
-          goTo(10);
+          goTo(11);
         }
-      case 12:
+      case 13:
         if (!store.adminReplied &&
             DemoKeys.chatComposer.currentContext == null) {
-          goTo(DemoKeys.detailsStatus.currentContext != null ? 11 : 10);
+          goTo(DemoKeys.detailsStatus.currentContext != null ? 12 : 11);
         }
     }
   }
@@ -479,6 +489,23 @@ _StepView _viewFor(int step) {
         doneText: 'The issue is pinned on the map. Tap Next.',
       );
     case 7:
+      final typed = DemoNav.descriptionText.trim();
+      return _StepView(
+        title: 'Describe the issue',
+        text:
+            'Tap the Description box and tell your barangay what you see, '
+            'e.g. “Deep pothole near the chapel.” It’s optional, but it '
+            'helps the barangay.',
+        target: DemoKeys.descriptionField,
+        scroll: true,
+        doneTitle: typed.isEmpty
+            ? 'Description (optional)'
+            : 'Description added',
+        doneText: typed.isEmpty
+            ? 'Type a short description, or leave it empty. Tap Next when you’re ready.'
+            : 'Nice! You can keep editing it. Tap Next when you’re done.',
+      );
+    case 8:
       return _StepView(
         title: 'Submit the report',
         text: 'Everything is filled in. Tap “Submit Report”.',
@@ -487,7 +514,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Report sent!',
         doneText: 'Your report $id was submitted. Tap Next to find it.',
       );
-    case 8:
+    case 9:
       return _StepView(
         title: 'Open My Reports',
         text:
@@ -498,7 +525,7 @@ _StepView _viewFor(int step) {
             'Here is $id. Its status is Pending: the barangay has not '
             'acted on it yet.',
       );
-    case 9:
+    case 10:
       return _StepView(
         title: 'Check your alerts',
         text: 'Tap “Alerts” at the bottom to see what happened to your report.',
@@ -508,7 +535,7 @@ _StepView _viewFor(int step) {
             'The barangay started working on it: $id changed from Pending '
             'to In progress.',
       );
-    case 10:
+    case 11:
       final onAlerts = onHome && tab == 2;
       return _StepView(
         title: 'Open the notification',
@@ -522,7 +549,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Report Details',
         doneText: 'The status now shows In progress, here and in My Reports.',
       );
-    case 11:
+    case 12:
       return _StepView(
         title: 'Ask for an update',
         text: 'Tap “Ask your barangay about this report” below.',
@@ -531,7 +558,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Chat with your barangay',
         doneText: 'This chat is about $id. Tap Next to send a follow-up.',
       );
-    case 12:
+    case 13:
       return _StepView(
         title: store.hasAskedFollowUp
             ? 'Waiting for the barangay'
@@ -543,7 +570,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'The barangay replied',
         doneText: '“Currently working for it.” Tap Next.',
       );
-    case 13:
+    case 14:
       return _StepView(
         title: 'Go back to My Reports',
         text: onHome
@@ -554,7 +581,7 @@ _StepView _viewFor(int step) {
         doneTitle: 'Your report is resolved',
         doneText: '$id now shows Resolved, and you got a new alert.',
       );
-    case 14:
+    case 15:
       final rating = DemoNav.isShown(DemoKeys.rateSection);
       final onList = onHome && tab == 1;
       return _StepView(
@@ -610,6 +637,7 @@ class _DemoLayerState extends State<DemoLayer>
   String _phase = '';
   DateTime _phaseStart = DateTime(2000);
   int _stableFrames = 0;
+  String _cardText = '';
   Rect? _lastRect;
   String _scrolledFor = '';
   DateTime _lastScroll = DateTime(2000);
@@ -727,6 +755,15 @@ class _DemoLayerState extends State<DemoLayer>
       }
     }
 
+    // Redraw the card when its wording changes (e.g. text typed in the
+    // description, the AI's category, "barangay is typing…").
+    final card =
+        '${view.title}|${view.text}|${view.doneTitle}|${view.doneText}|$done';
+    if (card != _cardText) {
+      _cardText = card;
+      if (_ready) setState(() {});
+    }
+
     if (!_ready) {
       final same =
           rect != null &&
@@ -809,7 +846,7 @@ class _DemoLayerState extends State<DemoLayer>
       final bar = DemoNav.homeIsCurrent ? _rectOf(DemoKeys.navBar) : null;
       final bottom = bar != null
           ? size.height - bar.top + 10
-          : media.padding.bottom + 12;
+          : media.padding.bottom + media.viewInsets.bottom + 12;
       return Positioned(left: 12, right: 12, bottom: bottom, child: child);
     }
 
@@ -1288,7 +1325,6 @@ class _RenderSpotlight extends RenderBox {
     }
     context.canvas.drawPath(path, paint);
   }
-
 }
 
 // ============================================================

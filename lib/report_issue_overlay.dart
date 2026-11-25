@@ -110,6 +110,8 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
       DemoNav.sampleChosen = false;
       DemoNav.locationConfirmed = false;
       DemoNav.categoryReady = false;
+      DemoNav.descriptionTouched = false;
+      DemoNav.descriptionText = '';
       DemoNav.chooseSample = () => _useDemoSample(kDemoSamples.first);
       DemoNav.confirmLocation = _confirmDemoLocation;
       DemoNav.submitReport = _submitReport;
@@ -2002,12 +2004,21 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
                           ),
                           const SizedBox(height: 12),
                           TextField(
+                            key: kDemoMode ? DemoKeys.descriptionField : null,
                             controller: _descriptionController,
                             enabled: !_isSubmitting,
                             maxLength: 300,
                             maxLines: 5,
                             minLines: 4,
-                            onChanged: (_) => setState(() {}),
+                            // Demo tutorial: tapping the box counts as
+                            // the step's action (typing is optional).
+                            onTap: kDemoMode
+                                ? () => DemoNav.descriptionTouched = true
+                                : null,
+                            onChanged: (value) {
+                              if (kDemoMode) DemoNav.descriptionText = value;
+                              setState(() {});
+                            },
                             decoration: InputDecoration(
                               hintText: _descriptionRequired
                                   ? 'Describe the issue (required for "Others")'
