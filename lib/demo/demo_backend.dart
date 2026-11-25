@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
+import 'package:citisense/api_config.dart';
 import 'package:citisense/demo/demo_config.dart';
 import 'package:citisense/demo/demo_store.dart';
 
@@ -16,7 +17,22 @@ import 'package:citisense/demo/demo_store.dart';
 // screens do not need to change. Nothing leaves the browser.
 // ============================================================
 
-http.Client createDemoClient() => MockClient(_handle);
+/// Only calls to the app's own API are simulated. Everything else (the
+/// OpenStreetMap tiles of the location map, for example) goes to the real
+/// internet through [network], a normal client created outside the
+/// demo zone.
+http.Client createDemoClient(http.Client network) => MockClient((request) {
+  if (request.url.host == _apiHost) return _handle(request);
+  return _forward(network, request);
+});
+
+final String _apiHost = Uri.parse(apiBaseUrl).host;
+
+Future<http.Response> _forward(http.Client network, http.Request r) async {
+  final copy = http.Request(r.method, r.url)..headers.addAll(r.headers);
+  if (r.bodyBytes.isNotEmpty) copy.bodyBytes = r.bodyBytes;
+  return http.Response.fromStream(await network.send(copy));
+}
 
 String _iso(DateTime t) => t.toUtc().toIso8601String();
 

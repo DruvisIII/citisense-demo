@@ -29,13 +29,16 @@ Future<void> main() async {
   // Web demo (--dart-define=DEMO=true): no backend, Firebase or push.
   // Every http call inside this zone goes to the local mock backend.
   if (kDemoMode) {
+    // Real network client for non-API requests (map tiles), created
+    // before entering the zone so it is not replaced by the mock.
+    final network = http.Client();
     return http.runWithClient(() async {
       WidgetsFlutterBinding.ensureInitialized();
       await DemoStore.instance.load();
       await TutorialController.instance.load();
       ApiClient.onSessionExpired = SessionManager.sessionExpired;
       runApp(const MyApp());
-    }, createDemoClient);
+    }, () => createDemoClient(network));
   }
 
   WidgetsFlutterBinding.ensureInitialized();
