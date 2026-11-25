@@ -16,7 +16,7 @@ const String kFeedbackFormUrl =
 
 /// Fake barangay used by every demo account.
 const String kDemoBarangayID = 'BRGY-DEMO';
-const String kDemoBarangayName = 'Barangay San Isidro (Demo)';
+const String kDemoBarangayName = 'San Isidro (Demo)';
 
 /// Address shown for every demo report pinned on the static map.
 const String kDemoAddress = 'Purok 3, Rizal Street, Barangay San Isidro';

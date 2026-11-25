@@ -641,6 +641,7 @@ class _DemoLayerState extends State<DemoLayer>
   Rect? _hole;
   bool _homeShown = false;
   String _scrolledFor = '';
+  DateTime _lastScroll = DateTime(2000);
 
   @override
   void initState() {
@@ -692,13 +693,24 @@ class _DemoLayerState extends State<DemoLayer>
     final target = view.target;
     if (target != null && DemoNav.isShown(target, onTab: view.onTab)) {
       rect = _rectOf(target);
-      // Bring the highlighted widget into view once per step.
+      // Bring the highlighted widget into view, and again if the layout
+      // moved it off-screen (e.g. an image above it finished loading).
       final id = '${_tutorial.step}:${target.hashCode}';
-      if (view.scroll && _scrolledFor != id && rect != null) {
+      final layer = _layerKey.currentContext?.findRenderObject();
+      final height = layer is RenderBox && layer.hasSize
+          ? layer.size.height
+          : double.infinity;
+      final offScreen =
+          rect != null && (rect.top < 0 || rect.bottom > height - 16);
+      final now = DateTime.now();
+      final due = now.difference(_lastScroll).inMilliseconds > 700;
+      if (view.scroll &&
+          rect != null &&
+          (_scrolledFor != id || (offScreen && due))) {
         _scrolledFor = id;
-        final ctx = target.currentContext!;
+        _lastScroll = now;
         Scrollable.ensureVisible(
-          ctx,
+          target.currentContext!,
           alignment: 0.35,
           duration: const Duration(milliseconds: 400),
           curve: Curves.easeOut,

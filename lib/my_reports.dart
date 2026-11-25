@@ -227,7 +227,8 @@ class _MyReportsPageState extends State<MyReportsPage> {
       '$apiBaseUrl/get_my_reports.php';
   // 'http://10.127.214.252/citisense/api/get_my_reports.php';
   //'http://192.168.83.252/citisense/api/get_my_reports.php';
-  int _selectedFilter = 1;
+  // Demo: "All Reports", so the tester's report stays visible when resolved.
+  int _selectedFilter = kDemoMode ? 0 : 1;
   String _searchQuery = '';
   bool _newestFirst = true;
 
@@ -278,6 +279,12 @@ class _MyReportsPageState extends State<MyReportsPage> {
   }
 
   void _onLiveUpdate() {
+    if (kDemoMode &&
+        mounted &&
+        _selectedFilter == 1 &&
+        DemoStore.instance.stage.index >= DemoStage.resolved.index) {
+      setState(() => _selectedFilter = 0);
+    }
     if (mounted) _loadReports();
   }
 
