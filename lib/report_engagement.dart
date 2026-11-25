@@ -7,6 +7,9 @@ import 'package:citisense/auth_session.dart';
 import 'package:citisense/friendly_errors.dart';
 import 'package:citisense/app_theme.dart';
 import 'package:citisense/barangay_messages_page.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/tutorial.dart';
 import 'package:citisense/live_updates.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -195,6 +198,31 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
     _load();
     // Barangay replies and status updates appear without refreshing.
     LiveUpdates.instance.changes.addListener(_onLiveUpdate);
+    if (_isDemoReport) {
+      DemoNav.submitRating = () {
+        _prefillDemoFeedback();
+        _submitFeedback();
+      };
+      TutorialController.instance.addListener(_onTutorialChanged);
+    }
+  }
+
+  /// Demo: the report followed by the tutorial.
+  bool get _isDemoReport =>
+      kDemoMode && widget.reportID == DemoStore.instance.demoReportID;
+
+  void _onTutorialChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// Demo: suggest 5 stars and a sample comment (the tester can edit).
+  void _prefillDemoFeedback() {
+    if (!kDemoMode || !widget.isResolved || _feedback != null) return;
+    _isFixed ??= true;
+    if (_rating == 0) _rating = 5;
+    if (_feedbackComment.text.isEmpty) {
+      _feedbackComment.text = kDemoFeedbackComment;
+    }
   }
 
   void _onLiveUpdate() {
@@ -203,6 +231,10 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
 
   @override
   void dispose() {
+    if (_isDemoReport) {
+      DemoNav.submitRating = null;
+      TutorialController.instance.removeListener(_onTutorialChanged);
+    }
     LiveUpdates.instance.changes.removeListener(_onLiveUpdate);
     _feedbackComment.dispose();
     super.dispose();
@@ -250,6 +282,7 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
       _feedback = rawFeedback is Map
           ? ReportFeedback.fromJson(Map<String, dynamic>.from(rawFeedback))
           : null;
+      _prefillDemoFeedback();
     });
   }
 
@@ -307,12 +340,18 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
       children: [
         if (widget.isResolved) ...[
           const SizedBox(height: 28),
-          _sectionTitle(
-            'Rate the Resolution',
-            'Let your barangay know if the issue is really fixed.',
+          Column(
+            key: _isDemoReport ? DemoKeys.rateSection : null,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _sectionTitle(
+                'Rate the Resolution',
+                'Let your barangay know if the issue is really fixed.',
+              ),
+              const SizedBox(height: 12),
+              _buildFeedbackCard(),
+            ],
           ),
-          const SizedBox(height: 12),
-          _buildFeedbackCard(),
         ],
         const SizedBox(height: 24),
         // One card: a header strip, then the report's status history.
@@ -372,6 +411,8 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
+            key: _isDemoReport ? DemoKeys.askButton : null,
+            style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
                 builder: (_) => BarangayMessagesPage(
@@ -441,6 +482,53 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
   }
 
   Widget _buildFeedbackSummary(ReportFeedback fb) {
+    if (!kDemoMode) return _buildFeedbackSummaryCard(fb);
+    final tutorial = TutorialController.instance;
+    final showDone = _isDemoReport && tutorial.active && !tutorial.done;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: AppColors.successSoft,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.check_circle_rounded, color: AppColors.success),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Thanks for your feedback!',
+                  style: TextStyle(
+                    fontFamily: appHeadingFontFamily,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        _buildFeedbackSummaryCard(fb),
+        if (showDone) ...[
+          const SizedBox(height: 12),
+          ElevatedButton(
+            key: DemoKeys.rateDone,
+            onPressed: tutorial.finish,
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('Done'),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFeedbackSummaryCard(ReportFeedback fb) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -457,10 +545,12 @@ class _ReportEngagementSectionState extends State<ReportEngagementSection> {
                 fb.isFixed ? Icons.check_circle_rounded : Icons.cancel_rounded,
               ),
               const Spacer(),
-              TextButton(
-                onPressed: _startEditingFeedback,
-                child: const Text('Edit'),
-              ),
+              // Demo: once rated, the form stays hidden.
+              if (!kDemoMode)
+                TextButton(
+                  onPressed: _startEditingFeedback,
+                  child: const Text('Edit'),
+                ),
             ],
           ),
           const SizedBox(height: 8),

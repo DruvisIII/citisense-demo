@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:citisense/api_client.dart';
 import 'package:citisense/api_config.dart';
 import 'package:citisense/app_theme.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/tutorial.dart';
 import 'package:citisense/live_updates.dart';
 
 // ============================================================
@@ -170,6 +173,24 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
     });
     LiveUpdates.instance.changes.addListener(_onLiveUpdate);
     _composer.addListener(() => setState(() {}));
+
+    if (kDemoMode) {
+      final store = DemoStore.instance;
+      // Scripted follow-up: the tester only presses Send.
+      if (_selectedReportID.isNotEmpty &&
+          _selectedReportID == store.demoReportID &&
+          !store.hasAskedFollowUp) {
+        _composer.text = kDemoFollowUpMessage;
+      }
+      DemoNav.sendChat = _send;
+      store.adminTyping.addListener(_onTyping);
+    }
+  }
+
+  void _onTyping() {
+    if (!mounted) return;
+    setState(() {});
+    _scrollToBottom();
   }
 
   void _onLiveUpdate() {
@@ -178,6 +199,10 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
 
   @override
   void dispose() {
+    if (kDemoMode) {
+      if (DemoNav.sendChat == _send) DemoNav.sendChat = null;
+      DemoStore.instance.adminTyping.removeListener(_onTyping);
+    }
     _poll?.cancel();
     LiveUpdates.instance.changes.removeListener(_onLiveUpdate);
     _composer.dispose();
@@ -653,7 +678,9 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
               ),
             ),
             Text(
-              _barangayName.isNotEmpty
+              kDemoMode && _selectedReportID.isNotEmpty
+                  ? 'About report $_selectedReportID'
+                  : _barangayName.isNotEmpty
                   ? 'Barangay $_barangayName'
                   : 'Your barangay',
               maxLines: 1,
@@ -764,8 +791,10 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
         controller: _scroll,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        itemCount: _messages.length,
-        itemBuilder: (context, index) => _bubble(_messages[index]),
+        itemCount: _messages.length + (_showTyping ? 1 : 0),
+        itemBuilder: (context, index) => index < _messages.length
+            ? _bubble(_messages[index])
+            : const _TypingBubble(),
       ),
     );
   }
@@ -1007,11 +1036,14 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
   // COMPOSER
   // ------------------------------------------------------------
 
+  bool get _showTyping => kDemoMode && DemoStore.instance.adminTyping.value;
+
   Widget _buildComposer() {
     final bool canSend = _composer.text.trim().isNotEmpty && !_sending;
     final report = _selectedReport;
 
     return Container(
+      key: kDemoMode ? DemoKeys.chatComposer : null,
       padding: const EdgeInsets.fromLTRB(12, 8, 8, 10),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -1183,6 +1215,46 @@ class _BarangayMessagesPageState extends State<BarangayMessagesPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Demo: "Barangay is typing…" bubble before the scripted reply.
+class _TypingBubble extends StatelessWidget {
+  const _TypingBubble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppColors.divider),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 10),
+            Text(
+              'Barangay is typing…',
+              style: TextStyle(
+                fontFamily: appFontFamily,
+                fontStyle: FontStyle.italic,
+                color: AppColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,6 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:citisense/api_client.dart';
 import 'package:citisense/auth_session.dart';
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/open_url.dart';
+import 'package:citisense/demo/tutorial.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:citisense/session_manager.dart';
 import 'package:citisense/change_password_page.dart';
 import 'package:citisense/friendly_errors.dart';
@@ -199,6 +203,15 @@ class _SettingsPageState extends State<SettingsPage> {
                 child: _buildFontSizeTile(),
               ),
               const SizedBox(height: 28),
+              if (kDemoMode) ...[
+                _buildSectionTitle('DEMO'),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildDemoCard(),
+                ),
+                const SizedBox(height: 28),
+              ],
               _buildSectionTitle('SUPPORT'),
               const SizedBox(height: 10),
               Padding(
@@ -516,6 +529,57 @@ class _SettingsPageState extends State<SettingsPage> {
       ],
     ),
   );
+
+  /// Demo only: How to test, Give feedback, Reset demo.
+  Widget _buildDemoCard() {
+    Widget tile(
+      IconData icon,
+      String title,
+      String subtitle,
+      VoidCallback onTap,
+    ) => ListTile(
+      minVerticalPadding: 12,
+      leading: _buildIconCircle(icon, AppColors.primarySoft, AppColors.primary),
+      title: Text(
+        title,
+        style: const TextStyle(
+          fontFamily: appHeadingFontFamily,
+          fontWeight: FontWeight.w800,
+          color: darkBlue,
+        ),
+      ),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    );
+    return Container(
+      decoration: _cardDecoration(),
+      child: Column(
+        children: [
+          tile(
+            Icons.school_outlined,
+            'How to test',
+            'Restart the step-by-step tutorial.',
+            TutorialController.instance.restart,
+          ),
+          const Divider(height: 1),
+          tile(
+            Icons.rate_review_outlined,
+            'Give feedback',
+            'Open the tester feedback form.',
+            () => openUrlSameTab(kFeedbackFormUrl),
+          ),
+          const Divider(height: 1),
+          tile(
+            Icons.restart_alt_rounded,
+            'Reset demo',
+            'Restore the starting data and restart the tutorial.',
+            () => confirmDemoReset(context),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildAppFeedbackCard() => _tappableCard(
     onTap: () {
@@ -1302,12 +1366,20 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage> {
     // Newly selected image.
     if (_selectedImage != null) {
       return ClipOval(
-        child: Image.file(
-          File(_selectedImage!.path),
-          width: 120,
-          height: 120,
-          fit: BoxFit.cover,
-        ),
+        // Web cannot read local files: image_picker gives a blob URL.
+        child: kIsWeb
+            ? Image.network(
+                _selectedImage!.path,
+                width: 120,
+                height: 120,
+                fit: BoxFit.cover,
+              )
+            : Image.file(
+                File(_selectedImage!.path),
+                width: 120,
+                height: 120,
+                fit: BoxFit.cover,
+              ),
       );
     }
 

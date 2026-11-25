@@ -131,7 +131,10 @@ class ReportCategoryStyle {
     case 'STAT001':
       return (label: 'Pending', color: AppColors.warning);
     case 'STAT002':
-      return (label: 'Ongoing', color: AppColors.primary);
+      return (
+        label: kDemoMode ? 'In progress' : 'Ongoing',
+        color: AppColors.primary,
+      );
     case 'STAT003':
       return (label: 'Resolved', color: AppColors.success);
     case 'STAT004':
@@ -660,6 +663,9 @@ class _MyReportsPageState extends State<MyReportsPage> {
     final reportID = report['reportID']?.toString() ?? '';
 
     return Material(
+      key: kDemoMode && reportID == DemoStore.instance.demoReportID
+          ? DemoKeys.demoReportCard
+          : null,
       color: Colors.white,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
@@ -1088,6 +1094,11 @@ class ReportDetailsPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Container(
+                key:
+                    kDemoMode &&
+                        report['reportID'] == DemoStore.instance.demoReportID
+                    ? DemoKeys.detailsStatus
+                    : null,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
                   vertical: 5,

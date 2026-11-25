@@ -12,6 +12,10 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:citisense/demo/demo_config.dart';
+import 'package:citisense/demo/demo_store.dart';
+import 'package:citisense/demo/tutorial.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:citisense/friendly_errors.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
@@ -102,6 +106,162 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
     AiInsightsPreference.isEnabled().then((enabled) {
       if (mounted) setState(() => _aiEnabled = enabled);
     });
+    if (kDemoMode) {
+      DemoNav.sampleChosen = false;
+      DemoNav.locationConfirmed = false;
+      DemoNav.chooseSample = () => _useDemoSample(kDemoSamples.first);
+      DemoNav.confirmLocation = _confirmDemoLocation;
+      DemoNav.submitReport = _submitReport;
+    }
+  }
+
+  // ============================================================
+  // DEMO: sample photos, fixed AI result, static map
+  // ============================================================
+
+  Future<void> _pickDemoSample() async {
+    final sample = await showModalBottomSheet<DemoSample>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          key: DemoKeys.sampleSheet,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Choose a sample photo',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Demo: the camera is replaced by these sample photos.',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Flexible(
+                child: GridView.count(
+                  shrinkWrap: true,
+                  crossAxisCount: 2,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 1.15,
+                  children: [
+                    for (final sample in kDemoSamples)
+                      InkWell(
+                        onTap: () => Navigator.pop(sheetContext, sample),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Column(
+                          children: [
+                            Expanded(
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: Image.asset(
+                                  sample.asset,
+                                  fit: BoxFit.cover,
+                                  width: double.infinity,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              sample.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (sample != null) await _useDemoSample(sample);
+  }
+
+  Future<void> _useDemoSample(DemoSample sample) async {
+    final bytes = (await rootBundle.load(sample.asset)).buffer.asUint8List();
+    if (!mounted) return;
+    DemoStore.instance.lastSample = sample;
+    DemoNav.sampleChosen = true;
+    setState(() {
+      _selectedImageBytes = bytes;
+      _selectedCategory = null;
+      _aiMessage = null;
+      _showMissingFields = false;
+      if (!DemoNav.locationConfirmed) {
+        _locationNote = 'Tap "Set Location on Map" to confirm the pinned spot.';
+      }
+    });
+    // Fake AI (demo backend): fixed category for this sample after ~1.5 s.
+    await _analyzeImage(bytes);
+  }
+
+  Future<void> _openDemoMap() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.all(18),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                'Confirm location',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Image.asset(kDemoStaticMapAsset, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                kDemoAddress,
+                style: TextStyle(color: AppColors.textSecondary),
+              ),
+              const SizedBox(height: 14),
+              ElevatedButton(
+                key: DemoKeys.mapConfirm,
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                ),
+                child: const Text('Confirm'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok == true) _confirmDemoLocation();
+  }
+
+  void _confirmDemoLocation() {
+    if (!mounted) return;
+    DemoNav.locationConfirmed = true;
+    setState(() {
+      _selectedLocation = const LatLng(kDemoLatitude, kDemoLongitude);
+      _selectedAddress = kDemoAddress;
+      _locationNote = 'Pinned on the demo map.';
+    });
   }
 
   final List<String> _categories = [
@@ -117,6 +277,11 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
 
   @override
   void dispose() {
+    if (kDemoMode) {
+      DemoNav.chooseSample = null;
+      DemoNav.confirmLocation = null;
+      DemoNav.submitReport = null;
+    }
     _descriptionController.dispose();
 
     super.dispose();
@@ -504,6 +669,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
   // ============================================================
 
   Future<void> _showImageSourceOptions() async {
+    if (kDemoMode) return _pickDemoSample();
     await showModalBottomSheet<void>(
       context: context,
       builder: (sheetContext) {
@@ -707,6 +873,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
   // ============================================================
 
   Future<void> _openMapPicker() async {
+    if (kDemoMode) return _openDemoMap();
     // If the image already supplied a suggested location (camera GPS or
     // gallery EXIF), open the map at that location. Otherwise use current
     // GPS only as the map's starting point; the user must tap to place a pin.
@@ -1164,6 +1331,16 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
 
   Widget _buildLocationPreview() {
     final LatLng point = _selectedLocation!;
+    if (kDemoMode) {
+      // Static picture instead of live map tiles (no map API in the demo).
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+        child: AspectRatio(
+          aspectRatio: 16 / 9,
+          child: Image.asset(kDemoStaticMapAsset, fit: BoxFit.cover),
+        ),
+      );
+    }
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(AppRadius.sm),
@@ -1474,6 +1651,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
                           sectionHeading('1', 'Upload Photo'),
                           const SizedBox(height: 12),
                           InkWell(
+                            key: kDemoMode ? DemoKeys.photoBox : null,
                             onTap: _isSubmitting || _isAnalyzing
                                 ? null
                                 : _showImageSourceOptions,
@@ -1614,6 +1792,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
                           ),
                           const SizedBox(height: 12),
                           DropdownButtonFormField<String>(
+                            key: kDemoMode ? DemoKeys.categoryField : null,
                             initialValue: _selectedCategory,
                             isExpanded: true,
                             decoration: InputDecoration(
@@ -1685,6 +1864,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
                             const SizedBox(height: 10),
                           ],
                           OutlinedButton(
+                            key: kDemoMode ? DemoKeys.locationButton : null,
                             onPressed: _isSubmitting || _isLocating
                                 ? null
                                 : _openMapPicker,
@@ -1901,6 +2081,7 @@ class _ReportIssueOverlayState extends State<ReportIssueOverlay> {
                               const SizedBox(width: 14),
                               Expanded(
                                 child: ElevatedButton(
+                                  key: kDemoMode ? DemoKeys.submitButton : null,
                                   onPressed: _isSubmitting || _isAnalyzing
                                       ? null
                                       : _submitReport,
